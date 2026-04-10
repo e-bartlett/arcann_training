@@ -1,8 +1,0 @@
-{salted: {saltedname: SALTED_0, saltedpath: /kuhpc/work/thompson/e497b540/SALTED_repo/SALTED_0/dump/, saltedtype: ghost-density},
-  system: {filename: /kuhpc/work/thompson/e497b540/SALTED_repo/SALTED_0/he.xyz, species: [H, O], parallel: true, average: false},
-  qm: {path2qm: /kuhpc/work/thompson/e497b540/SALTED_repo/SALTED_0/dump/, qmcode: cp2k, periodic: 3D, dfbasis: RI_TZVP_GTH,
-    coeffile: RI_DENSITY_COEFFS.dat, ovlpfile: RI_2C_INTS.fm, pseudocharge: 6.0},
-  descriptor: {rep1: {type: rho, rcut: 4.0, sig: 0.3, nrad: 8, nang: 6, neighspe: [
-        H, O]}, rep2: {type: rho, rcut: 4.0, sig: 0.3, nrad: 8, nang: 6, neighspe: [
-        H, O]}, sparsify: {nsamples: 10, ncut: 1000}}, gpr: {z: 2.0, Menv: 3840, Ntrain: 500,
-    trainfrac: 1.0, trainsel: random, blocksize: 10, regul: 0.00001}}

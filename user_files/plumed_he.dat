@@ -1,9 +1,0 @@
-UNITS LENGTH=A ENERGY=kcal/mol 
-# Group of atoms 
-el: GROUP ATOMS=193 
-ow: GROUP ATOMS=1-190:3 
-hw: GROUP ATOMS=2-191:3,3-192:3 
-# Minimal X-H distance 
-dsXH: DISTANCES GROUPA=el GROUPB=hw MIN={BETA=250.} 
-PRINT STRIDE=1 ARG=dsXH.min FILE=plumed_values.txt FMT=%8.4f 
-FLUSH STRIDE=1
