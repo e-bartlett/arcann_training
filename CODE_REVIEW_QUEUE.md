@@ -35,7 +35,7 @@ symlinked only the `.model-lammps.pt`.
   Suite still 4/4 for this module (166/167 overall, same pre-existing
   unrelated `test_check.py` error).
 
-Commit: <hash, filled in after committing>
+Commit: a57e619
 
 ---
 
