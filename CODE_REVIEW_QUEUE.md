@@ -27,7 +27,7 @@ branch drives LAMMPS from the MACE tandem driver unconditionally.
   the branch is MACE-only. Full unit suite 166/167 (same pre-existing
   unrelated `test_check.py` error).
 
-Commit: <hash, filled in after committing>
+Commit: 441baa7
 
 ---
 
