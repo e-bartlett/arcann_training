@@ -285,8 +285,14 @@ def main(
                         model_deviation_raw = np.genfromtxt(
                             str(local_path / model_deviation_filename)
                         )
-                        #EB take every other value from model deviation, after first two lines
-                        model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
+                        if main_json.get("mlip_engine", "deepmd") == "mace":
+                            # he_mace_md.py writes one clean model_devi row per
+                            # PRINT_FREQ step (no pair_style deepmd double-write
+                            # of step 0), so the rows are used as-is.
+                            model_deviation = model_deviation_raw
+                        else:
+                            #EB take every other value from model deviation, after first two lines
+                            model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
                         if (
                             exploration_json["systems_auto"][system_auto][
                                 "exploration_type"

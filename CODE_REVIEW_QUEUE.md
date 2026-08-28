@@ -14,6 +14,25 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 4 (part C): exploration/deviate.py MACE model_devi branch
+
+The one fork-side piece of Chunk 4 part C (the rest is repo job scripts).
+
+- [ ] `arcann_training/exploration/deviate.py` — in the `lammps`/`i-PI`
+  `model_deviation` branch, after `np.genfromtxt`: for
+  `main_json.get("mlip_engine","deepmd") == "mace"` use the raw rows
+  (`model_deviation = model_deviation_raw`) instead of the
+  `concatenate((raw[:2], raw[3::2]))` decimation. `he_mace_md.py` writes one
+  clean row per PRINT_FREQ step (no `pair_style deepmd` double-write of step
+  0), so the DeePMD-tuned slice would drop / misalign rows. DeePMD path
+  unchanged. Full unit suite 166/167 (same pre-existing unrelated
+  `test_check.py` error). **P3 confirms** the raw series feeds
+  `get_last_frame_number` / the `sigma` filtering sensibly.
+
+Commit: <hash, filled in after committing>
+
+---
+
 ## 2026-08-28 — Chunk 3 follow-up 3: hard-code the driver name to `_mace_lammps.py`
 
 Per the user: drop the `mlip_engine` conditional added in follow-up 2 — this
