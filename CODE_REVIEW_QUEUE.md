@@ -65,7 +65,7 @@ Cross-chunk contract for Chunk 2's `job_mace_train_*.sh` / `mace_train_*.yaml`:
 `mace_run_train --name mace_<nnp>_<iter> --model_dir <nnp>` and redirect
 stdout to `<nnp>/training.log`.
 
-Commit: <hash>
+Commit: d532c5c
 
 ---
 
