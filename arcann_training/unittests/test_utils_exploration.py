@@ -132,6 +132,7 @@ class TestCreateModelsListMace(unittest.TestCase):
         self.nnp_dir.mkdir()
         for i in range(1, 4):
             (self.nnp_dir / f"mace_{i}_000.model-lammps.pt").touch()
+            (self.nnp_dir / f"mace_{i}_000.model").touch()
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -152,12 +153,10 @@ class TestCreateModelsListMace(unittest.TestCase):
         self.assertListEqual(models_list, expected_models_list)
         self.assertEqual(models_string, " ".join(expected_models_list))
         for i in range(1, 4):
-            nnp_link = self.local_dir / f"mace_{i}_000.model-lammps.pt"
-            self.assertTrue(nnp_link.is_symlink())
-            self.assertEqual(
-                nnp_link.resolve(),
-                self.nnp_dir / f"mace_{i}_000.model-lammps.pt",
-            )
+            for name in (f"mace_{i}_000.model-lammps.pt", f"mace_{i}_000.model"):
+                nnp_link = self.local_dir / name
+                self.assertTrue(nnp_link.is_symlink(), name)
+                self.assertEqual(nnp_link.resolve(), self.nnp_dir / name)
 
 
 class TestGetLastFrameNumber(unittest.TestCase):

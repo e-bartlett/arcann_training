@@ -773,18 +773,19 @@ def create_models_list(
     )
 
     # MACE tandem committee: LAMMPS-deployable TorchScript models, never compressed.
-    # Same reorder/symlink/return contract as the DeePMD path below.
+    # Same reorder/symlink/return contract as the DeePMD path below. models_list /
+    # models_string carry only the .model-lammps.pt names (what pair_style mace
+    # loads); the plain .model siblings are symlinked in too, for the Python
+    # committee force eval in he_mace_md.py (MACECalculator-style load, which the
+    # LAMMPS-compiled .model-lammps.pt can't serve).
     if main_json.get("mlip_engine", "deepmd") == "mace":
         models_list = [
             f"mace_{f}_{padded_prev_iter}.model-lammps.pt" for f in reorder_nnp_list
         ]
         for it_sub_nnp in range(1, main_json["nnp_count"] + 1):
-            nnp_apath = (
-                training_path
-                / "NNP"
-                / f"mace_{it_sub_nnp}_{padded_prev_iter}.model-lammps.pt"
-            ).resolve()
-            subprocess.call(["ln", "-nsf", str(nnp_apath), str(local_path)])
+            stem = training_path / "NNP" / f"mace_{it_sub_nnp}_{padded_prev_iter}.model"
+            for src in (stem.with_name(stem.name + "-lammps.pt"), stem):
+                subprocess.call(["ln", "-nsf", str(src.resolve()), str(local_path)])
         models_string = " ".join(models_list)
         return models_list, models_string
 

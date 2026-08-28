@@ -14,6 +14,31 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 3 follow-up: also symlink the plain `.model` committee files
+
+Surfaced writing the Chunk 4 driver (`dataset_prep/mace_electron/he_mace_md.py`
+in the hydrated_electron repo). The Python committee force eval needs the
+plain `mace_<n>_<iter>.model` checkpoints -- the LAMMPS-compiled
+`.model-lammps.pt` (what `pair_style mace` loads) can't be loaded by a
+`MACECalculator`-style path. `create_models_list`'s mace branch previously
+symlinked only the `.model-lammps.pt`.
+
+- [ ] `arcann_training/exploration/utils.py` — `create_models_list` mace
+  branch now symlinks **both** `mace_<n>_<prev_iter>.model-lammps.pt` and
+  `mace_<n>_<prev_iter>.model` into `local_path` per NNP. `models_list` /
+  `models_string` (and thus `_R_MODEL_FILES_`, `pair_coeff`) are unchanged
+  -- still the `.model-lammps.pt` names only. `freeze.py` already produces
+  both files in `NNP/`.
+- [ ] `arcann_training/unittests/test_utils_exploration.py` —
+  `TestCreateModelsListMace` now also `touch`es the `.model` siblings in
+  the fake `NNP/` and asserts both symlinks per NNP resolve into `NNP/`.
+  Suite still 4/4 for this module (166/167 overall, same pre-existing
+  unrelated `test_check.py` error).
+
+Commit: <hash, filled in after committing>
+
+---
+
 ## 2026-08-28 — Chunk 3: exploration spot fixes (utils + prepare)
 
 Phase-1 exploration spot fixes from `ARCANN_TANDEM_PLAN.md`. Same gate as
