@@ -344,9 +344,17 @@ def main(
                 training_path / "user_files" / (system_auto + ".in")
             )
 
+            # MACE drives LAMMPS from he_mace_lammps.py (a MACE-specific driver);
+            # the DeePMD path keeps its he_naive_lammps.py name.
+            driver_script_suffix = (
+                "_mace_lammps.py"
+                if main_json.get("mlip_engine", "deepmd") == "mace"
+                else "_naive_lammps.py"
+            )
+
             # EB Read in python script
             master_python_script_in = python_to_string_list(
-                training_path / "user_files" / (system_auto + "_naive_lammps.py")
+                training_path / "user_files" / (system_auto + driver_script_suffix)
             )
 
             analysis_code_1 = python_to_string_list(
@@ -1017,7 +1025,7 @@ def main(
                     )
                     
                     #EB write python script to path
-                    string_list_to_textfile(local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py", python_scipt_in, read_only=True)
+                    string_list_to_textfile(local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}", python_scipt_in, read_only=True)
 
                     job_array_params_line = (
                         str(system_auto)
@@ -1037,7 +1045,7 @@ def main(
                         f"{system_auto}_{nnp_index}_{padded_curr_iter}.in" + "/"
                     )
                     job_array_params_line += (
-                        f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py" + "/"
+                        f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}" + "/"
                     )
                     job_array_params_line += f"{system_lammps_data_fn}" + "/"
                     job_array_params_line += "" + "/"
@@ -1070,7 +1078,7 @@ def main(
                     job_file = replace_substring_in_string_list(
                         job_file,
                         "_R_LAMMPS_PYTHON_SCRIPT_",
-                        f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py",
+                        f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}",
                     )
                     job_file = replace_substring_in_string_list(
                         job_file,

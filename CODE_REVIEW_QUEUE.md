@@ -14,6 +14,27 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 3 follow-up 2: MACE driver script name `he_mace_lammps.py`
+
+User asked to rename the repo's `erb_user_files/he_naive_lammps.py` →
+`he_mace_lammps.py`. ArcaNN hard-codes the `<system>_naive_lammps.py`
+filename in `exploration/prepare.py`, so the fork needs to look for the new
+name under the mace engine.
+
+- [ ] `arcann_training/exploration/prepare.py` — in the `lammps` block, new
+  `driver_script_suffix = "_mace_lammps.py" if main_json.get("mlip_engine",
+  "deepmd") == "mace" else "_naive_lammps.py"`, used in all four places the
+  old literal `_naive_lammps.py` appeared: reading
+  `user_files/<system>_naive_lammps.py`, writing
+  `<system>_<nnp>_<iter>_naive_lammps.py` into the run dir, the job-array
+  `.lst` line, and the `_R_LAMMPS_PYTHON_SCRIPT_` job-file substitution.
+  DeePMD path unchanged (suffix resolves to `_naive_lammps.py`). Full unit
+  suite 166/167 (same pre-existing unrelated `test_check.py` error).
+
+Commit: <hash, filled in after committing>
+
+---
+
 ## 2026-08-28 — Chunk 3 follow-up: also symlink the plain `.model` committee files
 
 Surfaced writing the Chunk 4 driver (`dataset_prep/mace_electron/he_mace_md.py`
