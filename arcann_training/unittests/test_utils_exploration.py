@@ -119,6 +119,47 @@ class TestCreateModelsList(unittest.TestCase):
             )
 
 
+class TestCreateModelsListMace(unittest.TestCase):
+    """Test 'create_models_list' with the MACE engine gate (mlip_engine="mace")."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.training_dir = Path(self.temp_dir.name) / "training"
+        self.nnp_dir = self.training_dir / "NNP"
+        self.local_dir = Path(self.temp_dir.name) / "local"
+        self.training_dir.mkdir()
+        self.local_dir.mkdir()
+        self.nnp_dir.mkdir()
+        for i in range(1, 4):
+            (self.nnp_dir / f"mace_{i}_000.model-lammps.pt").touch()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_create_models_list_mace(self):
+        config_json = {"nnp_count": 3, "mlip_engine": "mace"}
+        # is_compressed intentionally absent: the mace branch must not read it
+        prevtraining_json = {}
+
+        models_list, models_string = create_models_list(
+            config_json, prevtraining_json, 2, "000", self.training_dir, self.local_dir
+        )
+        expected_models_list = [
+            "mace_2_000.model-lammps.pt",
+            "mace_3_000.model-lammps.pt",
+            "mace_1_000.model-lammps.pt",
+        ]
+        self.assertListEqual(models_list, expected_models_list)
+        self.assertEqual(models_string, " ".join(expected_models_list))
+        for i in range(1, 4):
+            nnp_link = self.local_dir / f"mace_{i}_000.model-lammps.pt"
+            self.assertTrue(nnp_link.is_symlink())
+            self.assertEqual(
+                nnp_link.resolve(),
+                self.nnp_dir / f"mace_{i}_000.model-lammps.pt",
+            )
+
+
 class TestGetLastFrameNumber(unittest.TestCase):
     """
     Test case for the 'get_last_frame_number' function.

@@ -14,6 +14,55 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 3: exploration spot fixes (utils + prepare)
+
+Phase-1 exploration spot fixes from `ARCANN_TANDEM_PLAN.md`. Same gate as
+Chunks 1-2: `main_json.get("mlip_engine", "deepmd") == "mace"`; the DeePMD
+fall-through is byte-identical (both mace branches are a leading `if ...:`
+that either early-returns or adds a dict key, nothing in the existing path
+moved). `deviate.py` deliberately untouched — the plan defers that to P3
+(only add a 3-line `model_deviation = raw` branch if the driver's
+`model_devi_*.out` does not survive the EB decimation slice).
+
+- [ ] `arcann_training/exploration/utils.py` — `create_models_list`: mace
+      branch before the compressed-model logic. Builds
+      `mace_<nnp>_<prev_iter>.model-lammps.pt` names (committee reorder
+      unchanged: propagated NNP first), symlinks each
+      `NNP/mace_<n>_<prev_iter>.model-lammps.pt` into `local_path`, returns
+      the same `(models_list, models_string)` tuple, then `return`s so the
+      DeePMD body never runs. Does **not** read `previous_json["is_compressed"]`
+      (no compression for MACE).
+- [ ] `arcann_training/exploration/prepare.py` — two mace branches in
+      `main()`:
+      1. `deepmd_model_version` seed: `previous_training_json["deepmd_
+         model_version"]` was a hard index (KeyErrors on a hand-seeded
+         `training_000.json` with no such key). Now: mace →
+         `.get("deepmd_model_version", "mace")`; deepmd → the original hard
+         index, unchanged.
+      2. LAMMPS branch, inside the per-NNP/per-traj loop, right after
+         `_R_ITER_`: for mace, symlink `NNP/centroid_<prev_iter>.model` into
+         `local_path` and set `input_replace_dict["_R_CENTROID_MODEL_"]` to
+         its **basename** (`centroid_<prev_iter>.model`). Basename (not the
+         plan's literal `NNP/centroid_<prev_iter>.model` string) so it
+         matches how `create_models_list`'s committee symlinks are consumed:
+         the explore job `realpath`s each basename from `local_path` and
+         links it into its scratch workdir. Flag if the plan intended a
+         literal path here instead.
+- [ ] `arcann_training/unittests/test_utils_exploration.py` — new
+      `TestCreateModelsListMace` (own temp-dir setUp/tearDown, does not
+      touch `TestCreateModelsList`). Asserts the mace filenames, the
+      space-joined string, and that all `nnp_count` symlinks resolve into
+      `NNP/`, with `is_compressed` absent from the prev-training JSON.
+      Full suite: `python -m unittest discover -s arcann_training/unittests`
+      → 166/167 (the 1 error is the pre-existing unrelated
+      `test_check.py::test_validate_step_folder`).
+
+Gate before running `exploration prepare` (per the plan's staging table).
+
+Commit: <hash, filled in after committing>
+
+---
+
 ## 2026-08-28 — Chunk 2 (part B): training/prepare.py MACE branch
 
 Finishes Chunk 2. Early-return design (user's call): `main()` gains one

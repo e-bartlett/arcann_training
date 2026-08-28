@@ -772,6 +772,22 @@ def create_models_list(
         list_nnp[list_nnp.index(it_nnp) :] + list_nnp[: list_nnp.index(it_nnp)]
     )
 
+    # MACE tandem committee: LAMMPS-deployable TorchScript models, never compressed.
+    # Same reorder/symlink/return contract as the DeePMD path below.
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        models_list = [
+            f"mace_{f}_{padded_prev_iter}.model-lammps.pt" for f in reorder_nnp_list
+        ]
+        for it_sub_nnp in range(1, main_json["nnp_count"] + 1):
+            nnp_apath = (
+                training_path
+                / "NNP"
+                / f"mace_{it_sub_nnp}_{padded_prev_iter}.model-lammps.pt"
+            ).resolve()
+            subprocess.call(["ln", "-nsf", str(nnp_apath), str(local_path)])
+        models_string = " ".join(models_list)
+        return models_list, models_string
+
     # Determine whether to use compressed models
     compress_str = "_compressed" if previous_json["is_compressed"] else ""
 

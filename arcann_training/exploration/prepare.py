@@ -218,12 +218,19 @@ def main(
 
     # TODO to rewrite (generate_exploration_json ?)
     # Generate the exploration JSON
+    # For the MACE engine a hand-seeded training_000.json may not carry
+    # "deepmd_model_version"; fall back to "mace" rather than KeyError.
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        model_version = previous_training_json.get("deepmd_model_version", "mace")
+    else:
+        model_version = previous_training_json["deepmd_model_version"]
+
     exploration_json = {}
     exploration_json = {
         **exploration_json,
         "atomsk_path": atomsk_bin,
         "user_machine_keyword_exp": user_machine_keyword,
-        "deepmd_model_version": previous_training_json["deepmd_model_version"],
+        "deepmd_model_version": model_version,
         "nnp_count": main_json["nnp_count"],
     }
 
@@ -893,6 +900,21 @@ def main(
                     input_replace_dict["_R_ITER_"] = (
                         f"{padded_prev_iter}"
                     )
+
+                    # MACE tandem: the frozen centroid model the driver uses to
+                    # reposition the electron dummy atom every MD step. Symlinked
+                    # into local_path (basename in the slot) so the explore job
+                    # can realpath+link it into its scratch workdir, exactly like
+                    # the committee models from create_models_list().
+                    if main_json.get("mlip_engine", "deepmd") == "mace":
+                        centroid_model_fn = f"centroid_{padded_prev_iter}.model"
+                        centroid_apath = (
+                            training_path / "NNP" / centroid_model_fn
+                        ).resolve()
+                        subprocess.call(
+                            ["ln", "-nsf", str(centroid_apath), str(local_path)]
+                        )
+                        input_replace_dict["_R_CENTROID_MODEL_"] = centroid_model_fn
 
                     # Get data files (starting points) if iteration is > 1
                     if curr_iter > 1:
