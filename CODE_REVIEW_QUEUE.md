@@ -57,7 +57,7 @@ recompute, the per-NNP `training.json`) is untouched.
       `dataset_prep/mace_electron/` copy (header points there); this is what
       ArcaNN init drops in `$WORK_DIR/user_files/` for `_prepare_mace`.
 
-Commit: <hash>
+Commit: 5a0eff5
 
 ---
 
