@@ -35,4 +35,4 @@ Editable install verified in the `arcann` env: every `arcann_training.*`
 submodule resolves into this fork, `python -m arcann_training --help` and
 all phase entrypoints import with no regression.
 
-Commit: <hash>
+Commit: c8ac2ce
