@@ -31,7 +31,7 @@ name under the mace engine.
   DeePMD path unchanged (suffix resolves to `_naive_lammps.py`). Full unit
   suite 166/167 (same pre-existing unrelated `test_check.py` error).
 
-Commit: <hash, filled in after committing>
+Commit: c761e33
 
 ---
 
