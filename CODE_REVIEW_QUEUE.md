@@ -53,7 +53,7 @@ The same three files are added to the repo's `erb_user_files/` (mirror) and
 `dataset_prep/mace_electron/deepmd_npy_to_extxyz.py` lives repo-side only —
 see the repo `CODE_REVIEW_QUEUE.md`.
 
-Commit: <hash>
+Commit: f523b78
 
 ---
 
