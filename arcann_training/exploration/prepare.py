@@ -344,13 +344,11 @@ def main(
                 training_path / "user_files" / (system_auto + ".in")
             )
 
-            # MACE drives LAMMPS from he_mace_lammps.py (a MACE-specific driver);
-            # the DeePMD path keeps its he_naive_lammps.py name.
-            driver_script_suffix = (
-                "_mace_lammps.py"
-                if main_json.get("mlip_engine", "deepmd") == "mace"
-                else "_naive_lammps.py"
-            )
+            # The per-system LAMMPS driver template. This fork branch drives
+            # LAMMPS from the MACE tandem driver (he_mace_lammps.py wrapping
+            # dataset_prep/mace_electron/he_mace_md.py), so the name is
+            # _mace_lammps.py, not stock ArcaNN's _naive_lammps.py.
+            driver_script_suffix = "_mace_lammps.py"
 
             # EB Read in python script
             master_python_script_in = python_to_string_list(

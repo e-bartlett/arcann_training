@@ -14,6 +14,23 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 3 follow-up 3: hard-code the driver name to `_mace_lammps.py`
+
+Per the user: drop the `mlip_engine` conditional added in follow-up 2 — this
+branch drives LAMMPS from the MACE tandem driver unconditionally.
+
+- [ ] `arcann_training/exploration/prepare.py` — `driver_script_suffix` is
+  now the plain constant `"_mace_lammps.py"` (was
+  `"_mace_lammps.py" if mlip_engine == "mace" else "_naive_lammps.py"`).
+  The four use-sites are unchanged. Consequence: on `mace-tandem` a DeePMD
+  `exploration prepare` would also look for `<system>_mace_lammps.py` — fine,
+  the branch is MACE-only. Full unit suite 166/167 (same pre-existing
+  unrelated `test_check.py` error).
+
+Commit: <hash, filled in after committing>
+
+---
+
 ## 2026-08-28 — Chunk 3 follow-up 2: MACE driver script name `he_mace_lammps.py`
 
 User asked to rename the repo's `erb_user_files/he_naive_lammps.py` →
