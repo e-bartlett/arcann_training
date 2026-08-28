@@ -66,6 +66,14 @@ def main(
     main_json = load_json_file((control_path / "config.json"))
     training_json = load_json_file((control_path / f"training_{padded_curr_iter}.json"))
 
+    # Training job-file stem: DeePMD or MACE (same job for both engines,
+    # only the filename differs -- training/prepare.py stages it).
+    train_job_stem = (
+        "job_mace_train"
+        if main_json.get("mlip_engine", "deepmd") == "mace"
+        else "job_deepmd_train"
+    )
+
     user_machine_keyword = current_input_json["user_machine_keyword_train"]
     # From the keyword (or default), get the machine spec (or for the fake one)
     (
@@ -122,15 +130,16 @@ def main(
     completed_count = 0
     for nnp in range(1, main_json["nnp_count"] + 1):
         local_path = current_path / f"{nnp}"
-        if (
-            local_path / f"job_deepmd_train_{machine_spec['arch_type']}_{machine}.sh"
-        ).is_file():
+        job_file_name = (
+            f"{train_job_stem}_{machine_spec['arch_type']}_{machine}.sh"
+        )
+        if (local_path / job_file_name).is_file():
             change_directory(local_path)
             try:
                 subprocess.run(
                     [
                         machine_launch_command,
-                        f"./job_deepmd_train_{machine_spec['arch_type']}_{machine}.sh",
+                        f"./{job_file_name}",
                     ]
                 )
                 arcann_logger.info(f"DP Train - '{nnp}' launched.")
@@ -142,7 +151,7 @@ def main(
             change_directory(local_path.parent)
         else:
             arcann_logger.critical(f"DP Train - '{nnp}' NOT launched - No job file.")
-        del local_path
+        del local_path, job_file_name
     del nnp
 
     arcann_logger.info(f"-" * 88)

@@ -60,14 +60,26 @@ def main(
         arcann_logger.error(f"Aborting...")
         return 1
 
+    is_mace = main_json.get("mlip_engine", "deepmd") == "mace"
+
     completed_count = 0
     for nnp in range(1, main_json["nnp_count"] + 1):
         local_path = current_path / f"{nnp}"
-        if (local_path / f"graph_{nnp}_{padded_curr_iter}.pb").is_file():
+        if is_mace:
+            # training/freeze.py's MACE branch writes the deployed model to
+            # NNP/, not a graph_*.pb in the per-NNP folder.
+            frozen_file = (
+                training_path
+                / "NNP"
+                / f"mace_{nnp}_{padded_curr_iter}.model-lammps.pt"
+            )
+        else:
+            frozen_file = local_path / f"graph_{nnp}_{padded_curr_iter}.pb"
+        if frozen_file.is_file():
             completed_count += 1
         else:
             arcann_logger.critical(f"DP Freeze - '{nnp}' not finished/failed.")
-        del local_path
+        del local_path, frozen_file
     del nnp
     arcann_logger.debug(f"completed_count: {completed_count}")
 

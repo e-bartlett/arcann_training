@@ -99,6 +99,87 @@ def main(
     main_json = load_json_file((control_path / "config.json"))
     training_json = load_json_file((control_path / f"training_{padded_curr_iter}.json"))
 
+    # MACE: "freezing" is just compiling each trained model to the LAMMPS
+    # TorchScript format with mace_create_lammps_model. No job, no sbatch --
+    # it runs here, in the mace_electron env (main_json["mace_env"];
+    # falls back to PATH). Deploy float32 (LAMMPS pair_style mace is
+    # float32). Both files land in NNP/ as mace_<nnp>_<iter>.{model,
+    # model-lammps.pt}.
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        if not training_json["is_checked"]:
+            arcann_logger.error(f"Lock found. Please execute 'training check' first.")
+            arcann_logger.error(f"Aborting...")
+            return 1
+
+        mace_env = main_json.get("mace_env", "")
+        create_lammps_model = (
+            f"{mace_env}/bin/mace_create_lammps_model"
+            if mace_env
+            else "mace_create_lammps_model"
+        )
+        nnp_dir = training_path / "NNP"
+        nnp_dir.mkdir(exist_ok=True)
+        check_directory(nnp_dir)
+
+        completed_count = 0
+        for nnp in range(1, main_json["nnp_count"] + 1):
+            local_path = current_path / f"{nnp}"
+            model_file = local_path / f"mace_{nnp}_{padded_curr_iter}.model"
+            check_file_existence(model_file)
+
+            lammps_model_file = model_file.with_name(model_file.name + "-lammps.pt")
+            try:
+                subprocess.run(
+                    [
+                        create_lammps_model,
+                        "--dtype",
+                        "float32",
+                        str(model_file),
+                    ],
+                    check=True,
+                )
+            except (FileNotFoundError, subprocess.CalledProcessError) as err:
+                arcann_logger.critical(
+                    f"MACE Freeze - '{nnp}' failed: '{create_lammps_model}' ({err})."
+                )
+                del local_path, model_file, lammps_model_file
+                continue
+
+            if lammps_model_file.is_file():
+                for src in (model_file, lammps_model_file):
+                    subprocess.run(["rsync", "-a", str(src), str(nnp_dir)])
+                arcann_logger.info(f"MACE Freeze - '{nnp}' done.")
+                completed_count += 1
+            else:
+                arcann_logger.critical(
+                    f"MACE Freeze - '{nnp}' produced no '{lammps_model_file.name}'."
+                )
+            del local_path, model_file, lammps_model_file
+        del nnp
+
+        if completed_count == main_json["nnp_count"]:
+            training_json["is_freeze_launched"] = True
+            training_json["is_frozen"] = True
+
+        write_json_file(
+            training_json,
+            (control_path / f"training_{padded_curr_iter}.json"),
+            read_only=True,
+        )
+
+        arcann_logger.info(f"-" * 88)
+        if completed_count == main_json["nnp_count"]:
+            arcann_logger.info(
+                f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
+            )
+            return 0
+        arcann_logger.critical(
+            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a failure!"
+        )
+        arcann_logger.critical(f"Some MACE models were not compiled for LAMMPS.")
+        arcann_logger.critical(f"Aborting...")
+        return 1
+
     # Load the previous training JSON
     if curr_iter > 0:
         prev_iter = curr_iter - 1

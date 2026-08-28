@@ -2,7 +2,9 @@
     "initialization":
     {
         "systems_auto": [""],
-        "nnp_count": 3
+        "nnp_count": 3,
+        "mlip_engine": "deepmd",
+        "mace_env": ""
     },
     "training":
     {

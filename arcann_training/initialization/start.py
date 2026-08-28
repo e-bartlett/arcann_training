@@ -141,8 +141,11 @@ def main(
             user_files_path / f"{system_auto}.lmp", main_json["properties"]
         )
 
-    # Check the dptrain against the properties
-    check_dptrain_properties(user_files_path, main_json["properties"])
+    # Check the dptrain against the properties.
+    # MACE has no dptrain_*.json (training/prepare.py discovers a
+    # mace_train_*.yaml instead), so skip this check for that engine.
+    if main_json.get("mlip_engine", "deepmd") != "mace":
+        check_dptrain_properties(user_files_path, main_json["properties"])
 
     # Create the control directory
     control_path = training_path / "control"

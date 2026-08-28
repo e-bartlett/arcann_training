@@ -64,14 +64,21 @@ def main(
         arcann_logger.error(f"Aborting...")
         return 1
 
-    # Check if pb files are present and delete temp files
+    is_mace = main_json.get("mlip_engine", "deepmd") == "mace"
+
+    # Check that the trained models are present
     for nnp in range(1, main_json["nnp_count"] + 1):
         local_path = Path(".").resolve() / f"{nnp}"
-        check_file_existence(local_path / f"graph_{nnp}_{padded_curr_iter}.pb")
-        if training_json["is_compressed"]:
+        if is_mace:
             check_file_existence(
-                local_path / f"graph_{nnp}_{padded_curr_iter}_compressed.pb"
+                local_path / f"mace_{nnp}_{padded_curr_iter}.model"
             )
+        else:
+            check_file_existence(local_path / f"graph_{nnp}_{padded_curr_iter}.pb")
+            if training_json["is_compressed"]:
+                check_file_existence(
+                    local_path / f"graph_{nnp}_{padded_curr_iter}_compressed.pb"
+                )
 
     # Prepare the test folder
     (training_path / f"{padded_curr_iter}-test").mkdir(exist_ok=True)
@@ -86,35 +93,38 @@ def main(
         ]
     )
 
-    # Copy the pb files to the NNP meta folder
+    # Copy the models to the NNP meta folder. For MACE, training/freeze.py
+    # has already placed NNP/mace_<nnp>_<iter>.{model,model-lammps.pt}, so
+    # there is nothing to copy here.
     (training_path / "NNP").mkdir(exist_ok=True)
     check_directory(training_path / "NNP")
 
     local_path = Path(".").resolve()
 
-    for nnp in range(1, main_json["nnp_count"] + 1):
-        if training_json["is_compressed"]:
+    if not is_mace:
+        for nnp in range(1, main_json["nnp_count"] + 1):
+            if training_json["is_compressed"]:
+                subprocess.run(
+                    [
+                        "rsync",
+                        "-a",
+                        str(
+                            local_path
+                            / f"{nnp}"
+                            / f"graph_{nnp}_{padded_curr_iter}_compressed.pb"
+                        ),
+                        str((training_path / "NNP")),
+                    ]
+                )
             subprocess.run(
                 [
                     "rsync",
                     "-a",
-                    str(
-                        local_path
-                        / f"{nnp}"
-                        / f"graph_{nnp}_{padded_curr_iter}_compressed.pb"
-                    ),
+                    str(local_path / f"{nnp}" / f"graph_{nnp}_{padded_curr_iter}.pb"),
                     str((training_path / "NNP")),
                 ]
             )
-        subprocess.run(
-            [
-                "rsync",
-                "-a",
-                str(local_path / f"{nnp}" / f"graph_{nnp}_{padded_curr_iter}.pb"),
-                str((training_path / "NNP")),
-            ]
-        )
-    del nnp
+        del nnp
 
     # Next iteration
     next_iter = curr_iter + 1

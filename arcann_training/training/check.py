@@ -69,6 +69,55 @@ def main(
         arcann_logger.error(f"Aborting...")
         return 1
 
+    # MACE: a run is done when mace_run_train has written <nnp>/mace_<nnp>_
+    # <iter>.model and logged its final "Done" line to <nnp>/training.log
+    # (the stem the Chunk-2 job template redirects to). No checkpoint
+    # renaming, no neighbor-list parsing. mean_s_per_step is left as
+    # training/prepare.py set it (observed epoch timing lands in MACE's
+    # results/*.txt, not training.log -- parsing it is a later refinement).
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        completed_count = 0
+        for nnp in range(1, main_json["nnp_count"] + 1):
+            local_path = current_path / f"{nnp}"
+            model_file = local_path / f"mace_{nnp}_{padded_curr_iter}.model"
+            log_file = local_path / "training.log"
+            log_done = (
+                log_file.is_file()
+                and any(
+                    line.strip() == "Done"
+                    for line in textfile_to_string_list(log_file)[-20:]
+                )
+            )
+            if model_file.is_file() and log_done:
+                completed_count += 1
+            else:
+                arcann_logger.critical(f"MACE Train - '{nnp}' not finished/failed.")
+            del local_path, model_file, log_file, log_done
+        del nnp
+
+        if completed_count == main_json["nnp_count"]:
+            training_json["is_checked"] = True
+
+        write_json_file(
+            training_json,
+            (control_path / f"training_{padded_curr_iter}.json"),
+            read_only=True,
+        )
+
+        arcann_logger.info(f"-" * 88)
+        if completed_count == main_json["nnp_count"]:
+            arcann_logger.info(
+                f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
+            )
+            return 0
+        arcann_logger.critical(
+            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a failure!"
+        )
+        arcann_logger.critical(f"Some MACE Train did not finished correctly.")
+        arcann_logger.critical(f"Please check manually before re-exectuing this step.")
+        arcann_logger.critical(f"Aborting...")
+        return 1
+
     # Check the normal termination of the training phase
     # Counters
     # s_per_step_per_step_size = []
