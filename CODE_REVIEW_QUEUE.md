@@ -41,7 +41,7 @@ DeePMD path is untouched in all three (branch is a leading `if`, `else`
 falls through to the original body). `ast.parse` + import-check pass under
 the `arcann` env's editable install.
 
-Commit: <hash>
+Commit: f5a825f
 
 ---
 
