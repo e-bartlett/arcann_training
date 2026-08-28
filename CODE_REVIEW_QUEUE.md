@@ -14,6 +14,49 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 2 (part A): MACE train user-files (converter + yaml + job + plot)
+
+The standalone repo/user-file pieces of Chunk 2. `training/prepare.py`'s
+MACE branch (part B) wires them in next — held for a design check.
+
+- [ ] `erb_user_files/mace_train_r0.yaml` — `mace_run_train --config`
+      template (architecture from the plan: MACE, r_max 6, `128x0e+128x1o`,
+      2 interactions, correlation 3, max_ell 3; weighted force loss +
+      stage-two; SWA/EMA; `default_dtype: float32`). `E0s` keyed by Z:
+      `{0: 0.0, 1: 9.600156, 8: -6.505675}` (O/H from `dptrain_3.0.json`
+      `atom_ener`, X = 0). `_R_` slots `_R_SEED_`, `_R_MACE_MAX_EPOCHS_`
+      (prepare.py fills); name/seed/files stay on the CLI. **P2 checks: does
+      `mace_run_train` accept Z 0 in the z-table? does the O/H E0s scale
+      match?** — noted in-file. Verified: YAML parses; post-substitution
+      the two slots become ints.
+- [ ] `erb_user_files/job_mace_train_gpu_login1.sh` — ArcaNN job template
+      (`job_mace_train_<arch>_<machine>.sh`), mirrors
+      `job_deepmd_train_gpu_login1.sh`'s header (`_R_PARTITION_` /
+      `_R_SUBPARTITION_`). `_R_` slots: `_R_MACE_CONFIG_` (=mace_train.yaml),
+      `_R_MACE_NAME_` (=mace_<nnp>_<iter>), `_R_MACE_LOG_` (=training.log —
+      the Chunk-1 contract), `_R_SEED_`. Activates `mace_electron`, runs
+      `mace_run_train --model_dir . --log_dir . --results_dir ./results
+      --train_file train.xyz --valid_file valid.xyz > training.log`; no
+      `../data` copy (the converter writes the xyz into `<nnp>/`). Backgrounds
+      an `nvidia-smi` poller → `gpu_poll.csv`. `bash -n` clean. NOTE: the
+      machine keyword's sub-partition must pin `nvidia&(l40|a40|a100)`.
+- [ ] `erb_user_files/plot_loss.py` — new (did not exist; the fork's
+      `prepare.py` line ~110 already copies `user_files/plot_loss.py`
+      unconditionally, so DeePMD needed it too). Per-NNP: `<nnp>/lcurve.out`
+      → DeePMD table plot; else `<nnp>/results/*.txt` → MACE JSON-lines
+      plot (`rmse_e_per_atom` / `rmse_f` / `loss` vs epoch). `nnp_count`
+      from `../control/config.json`. Style follows the sibling
+      `erb_user_files/plot/plot_lcurve.py`, not the repo analysis-plot
+      convention. Smoke-tested on a synthetic MACE results dir.
+
+The same three files are added to the repo's `erb_user_files/` (mirror) and
+`dataset_prep/mace_electron/deepmd_npy_to_extxyz.py` lives repo-side only —
+see the repo `CODE_REVIEW_QUEUE.md`.
+
+Commit: <hash>
+
+---
+
 ## 2026-08-28 — Chunk 1 (rest): training freeze/check/increment + the init gate
 
 The remaining Phase-1 training spot fixes plus the initialization-side gate

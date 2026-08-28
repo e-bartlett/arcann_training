@@ -1,0 +1,60 @@
+# mace_run_train config for the hydrated-electron force/energy committee.
+# Chunk 2 of ARCANN_TANDEM_PLAN.md. training/prepare.py's MACE branch copies
+# this to <nnp>/mace_train.yaml with the _R_ slots substituted per NNP; the
+# job template then runs
+#   mace_run_train --config mace_train.yaml --name mace_<nnp>_<iter> \
+#     --seed <seed> --model_dir . --log_dir . --results_dir ./results \
+#     --train_file train.xyz --valid_file valid.xyz > training.log 2>&1
+#
+# _R_ slots (prepare.py fills these): _R_SEED_, _R_MACE_MAX_EPOCHS_.
+# name / seed / files / dirs stay on the CLI (see the job template).
+
+model: MACE
+r_max: 6.0
+num_interactions: 2
+hidden_irreps: "128x0e + 128x1o"
+correlation: 3
+max_ell: 3
+num_radial_basis: 8
+
+# Isolated-atom energies. Keys are atomic numbers: 8 = O, 1 = H, 0 = X
+# (the dummy electron atom). O/H seeded from the DeePMD atom_ener in
+# erb_user_files/dptrain_3.0.json (verify the scale in P2). X = 0 so the
+# electron never contributes an energy offset.
+# NOTE: whether mace_run_train accepts atomic number 0 in the z-table is
+# checked in P2 -- if it rejects Z 0, swap X for an unused real element as
+# a pseudo-species here and in deepmd_npy_to_extxyz.py, and document it.
+E0s: "{0: 0.0, 1: 9.600156, 8: -6.505675}"
+
+energy_key: REF_energy
+forces_key: REF_forces
+
+# Force-weighted loss. The electron rows carry zero force in the data
+# (deepmd_npy_to_extxyz.py zeroes them), so the model is pushed toward zero
+# force on X without any per-atom weight knob.
+loss: weighted
+energy_weight: 1.0
+forces_weight: 100.0
+
+# SWA / stage two: refine with a higher energy weight near the end.
+swa: true
+stage_two_energy_weight: 1000.0
+stage_two_forces_weight: 100.0
+
+ema: true
+ema_decay: 0.99
+lr: 0.01
+weight_decay: 5.0e-7
+scaling: rms_forces_scaling
+error_table: PerAtomRMSE
+
+# float32: ~2x speed/memory vs float64, forces tolerate it, and the LAMMPS
+# pair_style mace deployment is float32 anyway (plan GPU section). P2
+# compares float32 vs float64 force RMSE before this is final.
+default_dtype: float32
+device: cuda
+batch_size: 4
+valid_batch_size: 8
+max_num_epochs: _R_MACE_MAX_EPOCHS_
+seed: _R_SEED_
+save_cpu: true
