@@ -331,6 +331,11 @@ def validate_deepmd_config(training_config) -> None:
         If deepmd_model_version is not 2.0 or 2.1, or if deepmd_model_type_descriptor is not "se_e2_a".
         If the configuration is not valid with respect to machine/arch_name/arch and DeePMD.
     """
+    # The MACE engine has no DeePMD version to validate (training/prepare.py
+    # sets deepmd_model_version = "mace" in that branch).
+    if str(training_config.get("deepmd_model_version", "")).lower() == "mace":
+        return
+
     # Check DeePMD version
     if (
         float(training_config["deepmd_model_version"]) < 2.0

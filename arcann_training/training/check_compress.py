@@ -54,6 +54,20 @@ def main(
     main_json = load_json_file((control_path / "config.json"))
     training_json = load_json_file((control_path / f"training_{padded_curr_iter}.json"))
 
+    # MACE has no compression step (training/compress.py is a no-op for it).
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        arcann_logger.info(f"Compression is n/a for the MACE engine. Skipping.")
+        training_json["is_compressed"] = True
+        write_json_file(
+            training_json,
+            (control_path / f"training_{padded_curr_iter}.json"),
+            read_only=True,
+        )
+        arcann_logger.info(
+            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
+        )
+        return 0
+
     # Check if we can continue
     if not training_json["is_compress_launched"]:
         arcann_logger.error(f"Lock found. Please execute 'training compress' first.")
