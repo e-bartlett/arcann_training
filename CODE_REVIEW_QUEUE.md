@@ -59,7 +59,7 @@ moved). `deviate.py` deliberately untouched — the plan defers that to P3
 
 Gate before running `exploration prepare` (per the plan's staging table).
 
-Commit: <hash, filled in after committing>
+Commit: 44de52ba
 
 ---
 
