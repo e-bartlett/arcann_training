@@ -14,6 +14,53 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-08-28 — Chunk 2 (part B): training/prepare.py MACE branch
+
+Finishes Chunk 2. Early-return design (user's call): `main()` gains one
+`if main_json.get("mlip_engine","deepmd") == "mace": return _prepare_mace(...)`
+right after the labeling-extracted gate, so the entire DeePMD body
+(dptrain discovery, `validate_deepmd_config`, `dp_train_input`, the exp-LR
+recompute, the per-NNP `training.json`) is untouched.
+
+- [ ] `arcann_training/training/prepare.py` — new module fn `_prepare_mace`
+      (~200 lines) + the 1-line early return in `main`. What it does:
+  - `generate_training_json` for the shared user>previous>default merge
+    (popping any string `deepmd_model_version` first — it type-checks
+    against the numeric default), then forces `deepmd_model_version="mace"`.
+  - discovers `user_files/mace_train_r<N>.yaml` (highest N) and
+    `job_mace_train_<arch>_<machine>.sh`.
+  - collects data dirs: `data/init_*` (from `check_initial_datasets`) +
+    `data/<sys>_<iter>` for iter 1..curr, sys in `systems_auto`. For a
+    192-particle dir it pairs `<iter>-exploration/<sys>/elec_candidates_
+    <iter>_<sys>.xyz`; a 193-particle dir already has X.
+    **Assumption to verify against a live work dir**: that candidates path,
+    and that `data/<sys>_<iter>` frame order == elec_candidates line order.
+    -disturbed / adhoc / extra_ dirs are not handled (systems_auto:["he"]
+    only) — noted in-code.
+  - epochs/walltime (**P2 tunes**): `numb_steps` <= 10000 is read as an
+    explicit epoch count, else default 400; `mean_s_per_step` default
+    150 s/epoch (~1.5x the L40 survey figure); walltime = ceil(epochs *
+    s/epoch * 1.3) rounded to the hour.
+  - sets `is_prepared=True`, `is_compress_launched=is_compressed=True`
+    (compression n/a), the rest False.
+  - runs `<mace_env>/bin/python user_files/deepmd_npy_to_extxyz.py --out
+    <iter>-training --seed <padded_iter> --deepmd-dir ... [--elec-xyz ...]`
+    once → `<iter>-training/{train,valid}.xyz`, rsynced into each NNP.
+  - per NNP: `mace_train.yaml` from the template with `_R_SEED_` /
+    `_R_MACE_MAX_EPOCHS_` filled; `job_mace_train_<arch>_<machine>.sh` via
+    `replace_in_slurm_file_general` + `_R_MACE_CONFIG_` / `_R_MACE_NAME_`
+    (= `mace_<nnp>_<iter>`) / `_R_MACE_LOG_` (= `training.log`) / `_R_SEED_`.
+  - dumps `config.json`, `training_<iter>.json`, `used_input.json`.
+  `prepare.py` parses + imports; 165/166 unit tests pass (the 1 failure is
+  the pre-existing `test_check.py::test_validate_step_folder`).
+- [ ] `erb_user_files/deepmd_npy_to_extxyz.py` — MIRROR of the tested
+      `dataset_prep/mace_electron/` copy (header points there); this is what
+      ArcaNN init drops in `$WORK_DIR/user_files/` for `_prepare_mace`.
+
+Commit: <hash>
+
+---
+
 ## 2026-08-28 — Chunk 2 (part A): MACE train user-files (converter + yaml + job + plot)
 
 The standalone repo/user-file pieces of Chunk 2. `training/prepare.py`'s

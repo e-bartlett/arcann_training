@@ -51,6 +51,237 @@ from arcann_training.training.utils import (
 )
 
 
+def _prepare_mace(
+    arcann_logger,
+    current_path,
+    training_path,
+    control_path,
+    padded_curr_iter,
+    curr_iter,
+    default_input_json,
+    user_input_json,
+    current_input_json,
+    main_json,
+    previous_training_json,
+    machine,
+    machine_spec,
+    machine_walltime_format,
+):
+    """MACE branch of ``training prepare`` (see ``main``'s early return).
+
+    Shares ``main``'s preamble (iteration number, JSON loads, machine spec,
+    the labeling-extracted gate). Everything ``main`` does after that point
+    is DeePMD-only -- dptrain version discovery, the exp-LR recompute, the
+    per-NNP ``training.json`` -- so this function replaces it wholesale:
+
+    * ``training_json`` via the shared merge, then ``deepmd_model_version``
+      forced to ``"mace"`` and compression marked done (n/a for MACE).
+    * ``deepmd_npy_to_extxyz.py`` over ``data/init_he* + data/<sys>_<iter>``
+      (with the matching ``elec_candidates`` for the 192-atom new-iter
+      dirs) -> ``<iter>-training/{train,valid}.xyz``, copied into each NNP.
+    * per NNP: ``mace_train.yaml`` (from ``user_files/mace_train_r<N>.yaml``
+      with ``_R_SEED_`` / ``_R_MACE_MAX_EPOCHS_`` filled) and
+      ``job_mace_train_<arch>_<machine>.sh``.
+    """
+    user_files_path = training_path / "user_files"
+
+    # generate_training_json type-checks deepmd_model_version against the
+    # numeric default, so drop any string value before the merge, then mark.
+    current_input_json.pop("deepmd_model_version", None)
+    training_json, current_input_json = generate_training_json(
+        current_input_json, previous_training_json, default_input_json
+    )
+    training_json["deepmd_model_version"] = "mace"
+    current_input_json["deepmd_model_version"] = "mace"
+    arcann_logger.info(f"Engine: MACE.")
+
+    # MACE run_train config template: mace_train_r<N>.yaml, highest N wins.
+    yaml_list = sorted(
+        user_files_path.glob("mace_train_r*.yaml"),
+        key=lambda p: int(p.stem.rsplit("_r", 1)[-1]),
+    )
+    if not yaml_list:
+        arcann_logger.error(f"No mace_train_r*.yaml in {user_files_path}. Aborting...")
+        return 1
+    mace_config_template = textfile_to_string_list(yaml_list[-1])
+
+    # Job file for this machine.
+    job_file_name = f"job_mace_train_{machine_spec['arch_type']}_{machine}.sh"
+    if not (user_files_path / job_file_name).is_file():
+        arcann_logger.error(f"No {job_file_name} in {user_files_path}. Aborting...")
+        return 1
+    master_job_file = textfile_to_string_list(user_files_path / job_file_name)
+
+    current_input_json["job_email"] = get_key_in_dict(
+        "job_email", user_input_json, previous_training_json, default_input_json
+    )
+
+    # --- collect the DeePMD data dirs to convert ---------------------------
+    initial_datasets_info = check_initial_datasets(training_path)
+    data_path = training_path / "data"
+    check_directory(data_path)
+
+    convert_dirs = []  # list of (deepmd_dir, elec_xyz_or_None)
+    trained_count = 0
+
+    if training_json["use_initial_datasets"]:
+        for name in initial_datasets_info:
+            if (data_path / name).is_dir():
+                convert_dirs.append((data_path / name, None))
+                trained_count += initial_datasets_info[name]
+
+    for iteration in range(1, curr_iter + 1):
+        padded_iteration = str(iteration).zfill(3)
+        for system_auto in main_json["systems_auto"]:
+            data_dir = data_path / f"{system_auto}_{padded_iteration}"
+            if not data_dir.is_dir():
+                continue
+            trained_count += np.load(data_dir / "set.000" / "box.npy").shape[0]
+            n_particles = len(
+                np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
+            )
+            # 192-atom ArcaNN labeling output -> electron from that
+            # iteration's exploration candidates; 193-atom -> X already in.
+            elec_xyz = (
+                training_path
+                / f"{padded_iteration}-exploration"
+                / f"{system_auto}"
+                / f"elec_candidates_{padded_iteration}_{system_auto}.xyz"
+            )
+            convert_dirs.append((data_dir, None if n_particles > 192 else elec_xyz))
+    # NOTE: -disturbed / adhoc / extra_ datasets are not handled here (the
+    # hydrated-electron loop uses systems_auto: ["he"] only). Add them the
+    # same way if a future config needs them.
+
+    if not convert_dirs:
+        arcann_logger.error(f"No data dirs found under {data_path}. Aborting...")
+        return 1
+    arcann_logger.info(
+        f"MACE force set: {len(convert_dirs)} dir(s), ~{trained_count} configs."
+    )
+    arcann_logger.debug(f"convert_dirs: {convert_dirs}")
+
+    # --- epochs + walltime (P2 tunes these) -------------------------------
+    # training_json["numb_steps"] is a DeePMD batch count by default
+    # (400000); a small value is read as an explicit MACE epoch request.
+    mace_default_epochs = 400
+    mace_s_per_epoch = 150.0  # ~1.5x the L40 figure in gpu_survey_summary.md
+    max_epochs = (
+        int(training_json["numb_steps"])
+        if training_json["numb_steps"] <= 10000
+        else mace_default_epochs
+    )
+    if user_input_json.get("mean_s_per_step", 0) > 1:
+        mace_s_per_epoch = user_input_json["mean_s_per_step"]
+    walltime_approx_s = int(np.ceil(max_epochs * mace_s_per_epoch * 1.3 / 3600) * 3600)
+
+    for target in (training_json, current_input_json):
+        target["numb_steps"] = max_epochs
+        target["mean_s_per_step"] = mace_s_per_epoch
+        target["job_walltime_train_h"] = float(walltime_approx_s / 3600)
+
+    training_json = {
+        **training_json,
+        "training_datasets": [d.name for d, _ in convert_dirs],
+        "trained_count": trained_count,
+        "is_prepared": True,
+        "is_launched": False,
+        "is_checked": False,
+        "is_freeze_launched": False,
+        "is_frozen": False,
+        "is_compress_launched": True,  # compression is n/a for MACE
+        "is_compressed": True,
+        "is_incremented": False,
+    }
+
+    # --- run the converter once, into <iter>-training/ -------------------
+    mace_env = main_json.get("mace_env", "")
+    converter = user_files_path / "deepmd_npy_to_extxyz.py"
+    if not converter.is_file():
+        arcann_logger.error(
+            f"{converter} missing (add it to erb_user_files/). Aborting..."
+        )
+        return 1
+    converter_py = f"{mace_env}/bin/python" if mace_env else "python"
+    cmd = [
+        converter_py, str(converter),
+        "--out", str(current_path),
+        "--seed", padded_curr_iter,
+    ]
+    for data_dir, elec_xyz in convert_dirs:
+        cmd += ["--deepmd-dir", str(data_dir)]
+        if elec_xyz is not None:
+            if not elec_xyz.is_file():
+                arcann_logger.error(f"electron candidates {elec_xyz} missing. Aborting...")
+                return 1
+            cmd += ["--elec-xyz", str(elec_xyz)]
+    arcann_logger.debug(f"converter cmd: {' '.join(cmd)}")
+    if subprocess.run(cmd).returncode != 0 or not (current_path / "train.xyz").is_file():
+        arcann_logger.error(f"deepmd_npy_to_extxyz.py failed. Aborting...")
+        return 1
+
+    # --- per-NNP: yaml + job + copy the xyz ------------------------------
+    for nnp in range(1, main_json["nnp_count"] + 1):
+        local_path = current_path / f"{nnp}"
+        local_path.mkdir(exist_ok=True)
+        check_directory(local_path)
+
+        random.seed()
+        seed = int(f"{nnp}{random.randrange(0, 1000)}{padded_curr_iter}")
+
+        mace_config = replace_substring_in_string_list(
+            mace_config_template, "_R_SEED_", str(seed)
+        )
+        mace_config = replace_substring_in_string_list(
+            mace_config, "_R_MACE_MAX_EPOCHS_", str(max_epochs)
+        )
+        string_list_to_textfile(
+            local_path / "mace_train.yaml", mace_config, read_only=True
+        )
+
+        job_file = replace_in_slurm_file_general(
+            master_job_file,
+            machine_spec,
+            walltime_approx_s,
+            machine_walltime_format,
+            current_input_json["job_email"],
+        )
+        job_file = replace_substring_in_string_list(
+            job_file, "_R_MACE_CONFIG_", "mace_train.yaml"
+        )
+        job_file = replace_substring_in_string_list(
+            job_file, "_R_MACE_NAME_", f"mace_{nnp}_{padded_curr_iter}"
+        )
+        job_file = replace_substring_in_string_list(
+            job_file, "_R_MACE_LOG_", "training.log"
+        )
+        job_file = replace_substring_in_string_list(job_file, "_R_SEED_", str(seed))
+        string_list_to_textfile(
+            local_path / f"job_mace_train_{machine_spec['arch_type']}_{machine}.sh",
+            job_file,
+            read_only=True,
+        )
+
+        for xyz in ("train.xyz", "valid.xyz"):
+            subprocess.run(
+                ["rsync", "-a", str(current_path / xyz), str(local_path / xyz)]
+            )
+
+    write_json_file(main_json, (control_path / "config.json"), read_only=True)
+    write_json_file(
+        training_json,
+        (control_path / f"training_{padded_curr_iter}.json"),
+        read_only=True,
+    )
+    backup_and_overwrite_json_file(
+        current_input_json, (current_path / "used_input.json"), read_only=True
+    )
+
+    arcann_logger.info(f"-" * 88)
+    arcann_logger.info(f"Step: Training - Phase: Prepare is a success!")
+    return 0
+
+
 def main(
     current_step: str,
     current_phase: str,
@@ -195,6 +426,26 @@ def main(
     else:
         # exploration_json = {}
         labeling_json = {}
+
+    # MACE engine: everything below here is DeePMD-only. Hand off to the
+    # self-contained MACE branch (shares the preamble above).
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        return _prepare_mace(
+            arcann_logger,
+            current_path,
+            training_path,
+            control_path,
+            padded_curr_iter,
+            curr_iter,
+            default_input_json,
+            user_input_json,
+            current_input_json,
+            main_json,
+            previous_training_json,
+            machine,
+            machine_spec,
+            machine_walltime_format,
+        )
 
     if "deepmd_model_version" not in user_input_json:
         dptrain_list = []
