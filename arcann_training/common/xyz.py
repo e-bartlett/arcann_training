@@ -131,6 +131,7 @@ def parse_xyz_trajectory_file(
 
         for j in range(atom_count):
             line_elements = lines[i + 2 + j].split()
+            #print(line_elements)
             if len(line_elements) != 4:
                 raise ValueError(
                     "Incorrect file format: expected an atomic symbol followed by three coordinates."

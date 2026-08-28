@@ -18,6 +18,10 @@ from copy import deepcopy
 # Non-standard library imports
 import numpy as np
 
+import shutil
+import glob
+import os
+
 # Local imports
 from arcann_training.common.check import validate_step_folder
 from arcann_training.labeling.utils import (
@@ -57,6 +61,10 @@ def main(
     # Get the current path and set the training path as the parent of the current path
     current_path = Path(".").resolve()
     training_path = current_path.parent
+
+    #EB copy training_path/user_files/eb_labeling_codes/* current_path
+    for file in glob.glob(f"{training_path}/user_files/eb_labeling_codes/*"):
+        shutil.copy(file, current_path)
 
     # Log the step and phase of the program
     arcann_logger.info(
@@ -260,6 +268,7 @@ def main(
         total_to_label += labeling_count
 
     labeling_json["total_to_label"] = total_to_label
+
     # Second loop to create the jobs
     for system_auto_index, system_auto in enumerate(exploration_json["systems_auto"]):
 
@@ -564,6 +573,7 @@ def main(
             / system_auto
             / f"candidates_{padded_curr_iter}_{system_auto}.xyz"
         )
+        print(xyz_file)
         (
             num_atoms,
             atom_symbols,

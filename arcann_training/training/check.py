@@ -78,7 +78,6 @@ def main(
     min_nbor_dist = None
     max_nbor_size = None
     training_input_json = None
-    deepmd_version = training_json["deepmd_model_version"]
 
     for nnp in range(1, main_json["nnp_count"] + 1):
         local_path = current_path / f"{nnp}"
@@ -92,15 +91,10 @@ def main(
             # Finished correctly
             if any("finished training" in s for s in training_out):
 
-                if deepmd_version == 3.0:
-                    training_out_time = [s for s in training_out if "wall time" in s]
-                    batch_pattern = r"batch\s*(\d+)\b"
-                    time_pattern = r"wall time = (\d+\.\d+) s"
-                
-                else: 
-                    training_out_time = [s for s in training_out if "training time" in s]
-                    batch_pattern = r"batch\s*(\d+)\s"
-                    time_pattern = r"training time (\d+\.\d+) s"
+                training_out_time = [s for s in training_out if "total wall time" in s]
+
+                batch_pattern = r"batch\s*(\d+)\b"
+                time_pattern = r"wall time = (\d+\.\d+) s"
 
                 if min_nbor_dist is None or max_nbor_size is None:
                     for log_text in training_out:

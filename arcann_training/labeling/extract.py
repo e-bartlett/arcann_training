@@ -258,9 +258,13 @@ def main(
                         program_version = float(output_orca[0].split(" ")[2][0])
 
                 # Coordinates
+                #EB edit
                 coordinate_xyz = textfile_to_string_list(
-                    labeling_step_path / f"labeling_{padded_labeling_step}.xyz"
+                    labeling_step_path / f"naive_labeling_{padded_labeling_step}.xyz"
                 )
+                #coordinate_xyz = textfile_to_string_list(
+                #    labeling_step_path / f"labeling_{padded_labeling_step}.xyz"
+                #)
                 coord_array_raw = extract_and_convert_coordinates(
                     coordinate_xyz,
                     coord_array_raw,
@@ -304,10 +308,18 @@ def main(
                     del input_cp2k
 
                     # Forces
+                    # EB edit
+                    print(padded_labeling_step)
                     force_cp2k = textfile_to_string_list(
                         labeling_step_path
-                        / f"2_labeling_{padded_labeling_step}-Forces.for"
+                        / f"2_naive_labeling_{padded_labeling_step}-Forces.for"
                     )
+                    if force_cp2k[-1] == '':
+                        force_cp2k = force_cp2k[:-1]
+                    #force_cp2k = textfile_to_string_list(
+                    #    labeling_step_path
+                    #    / f"2_labeling_{padded_labeling_step}-Forces.for"
+                    #)
                     force_array_raw = extract_and_convert_forces(
                         force_cp2k,
                         force_array_raw,
@@ -317,7 +329,6 @@ def main(
                         program_version,
                     )
                     del force_cp2k
-
                     # Virial
                     if (
                         labeling_step_path

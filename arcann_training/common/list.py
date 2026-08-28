@@ -119,6 +119,49 @@ def replace_substring_in_string_list(
     ]
     return output_list
 
+@catch_errors_decorator
+def replace_substring_in_string_list_python(
+    input_list: List[str], substring_in: str, substring_out: str
+) -> List[str]:
+    """
+    Replace a specified substring with a new substring in each string of a list.
+
+    Parameters
+    ----------
+    input_list : List[str]
+        A list of input strings.
+    substring_in : str
+        The substring to replace in the input strings.
+    substring_out : str
+        The new substring to replace with.
+
+    Returns
+    -------
+    List[str]
+        A list of output strings with the specified substring replaced by the new substring.
+
+    Raises
+    ------
+    TypeError
+        If input_list is not a list of strings.
+    ValueError
+        If substring_in is an empty string.
+    """
+    if not isinstance(input_list, list):
+        error_msg = f"Invalid input type. '{input_list}' must be a '{type([])}' of '{type('')}'."
+        raise TypeError(error_msg)
+
+    if not substring_in:
+        error_msg = f"Invalid input. '{substring_in}' must be a non-empty '{type('')}'."
+        raise ValueError(error_msg)
+
+    # if not substring_out:
+    #    raise ValueError("Invalid input. substring_out must be a non-empty string.")
+
+    output_list = [
+        string.replace(substring_in, substring_out) for string in input_list
+    ]
+    return output_list
 
 # Unittested
 @catch_errors_decorator
@@ -246,4 +289,59 @@ def textfile_to_string_list(file_path: Path) -> List[str]:
         file_content = text_file.readlines()
 
     file_content = [line.strip() for line in file_content]
+    return file_content if file_content else []
+
+# Unittested
+@catch_errors_decorator
+def python_to_string_list(file_path: Path) -> List[str]:
+    """
+    Read the contents of a text file and return a list of strings,
+    where each string represents a line of text from the file. The function also
+    removes newline characters from the end of each line.
+
+    Parameters
+    ----------
+    file_path : Path
+        A 'Path' object representing the path to the file.
+
+    Returns
+    -------
+    list
+        A list of strings, where each string represents a line of text
+        from the file. Returns an empty list if the file is empty.
+
+    Raises
+    ------
+    TypeError
+        If the 'file_path' argument is not a 'Path' object.
+    FileNotFoundError
+        If the file does not exist or is not a file.
+    OSError
+        If there is an error reading the file.
+
+    Examples
+    --------
+    >>> file_path = Path('path/to/file.txt')
+    >>> textfile_to_string_list(file_path)
+    ['This is the first line.', 'This is the second line.', 'This is the third line.']
+    """
+
+    if not isinstance(file_path, Path):
+        error_msg = f"'{file_path}' must be a .{type(Path(''))}'."
+        raise TypeError(error_msg)
+
+    if not file_path.exists() or not file_path.is_file():
+        error_msg = f"File '{file_path}' does not exist."
+        raise FileNotFoundError(error_msg)
+
+    try:
+        with file_path.open("r") as text_file:
+            file_content = text_file.readlines()
+    except OSError as e:
+        error_msg = f"error reading the file '{file_path}': '{e}'."
+        raise OSError(error_msg)
+
+    with file_path.open("r") as text_file:
+        file_content = text_file.readlines()
+
     return file_content if file_content else []

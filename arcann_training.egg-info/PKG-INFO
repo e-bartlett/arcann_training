@@ -1,0 +1,26 @@
+Metadata-Version: 2.2
+Name: arcann_training
+Version: 1.0.0
+Home-page: https://github.com/arcann-chem/arcann
+Author: Rolf David
+Author-email: 
+License: GNU Affero General Public License v3
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: GNU Affero General Public License v3
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.7
+License-File: LICENSE
+Requires-Dist: numpy>=1.15
+Requires-Dist: pyyaml>=3.13
+Dynamic: author
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: license
+Dynamic: requires-dist
+Dynamic: requires-python

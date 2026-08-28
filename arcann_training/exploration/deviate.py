@@ -161,7 +161,7 @@ def main(
             "candidates_count": 0,
             "rejected_count": 0,
         }
-
+        
         skipped_traj_user = 0
         skipped_traj_stats = 0
         start_row_number = 0
@@ -180,8 +180,9 @@ def main(
             < exploration_json["systems_auto"][system_auto]["ignore_first_x_ps"]
         ):
             start_row_number = start_row_number + 1
-
+        
         arcann_logger.debug(f"start_row_number: {start_row_number}")
+        
         if (
             start_row_number
             > exploration_json["systems_auto"][system_auto]["nb_steps"]
@@ -194,12 +195,12 @@ def main(
             )
             arcann_logger.warning(f"Temporarily setting it to 0.")
 
+        #EB loop 
+        candidates_all = []
         for it_nnp in range(1, main_json["nnp_count"] + 1):
-            for it_number in range(
-                1, exploration_json["systems_auto"][system_auto]["traj_count"] + 1
-            ):
+            for it_number in range(1, exploration_json["systems_auto"][system_auto]["traj_count"] + 1):
                 arcann_logger.debug(f"{system_auto} / {it_nnp} / {it_number}")
-
+                print(f"{system_auto} / {it_nnp} / {it_number}")
                 # Get the local path and the name of model_deviation file
                 local_path = (
                     Path(".").resolve()
@@ -281,9 +282,11 @@ def main(
                         ]
                         == "i-PI"
                     ):
-                        model_deviation = np.genfromtxt(
+                        model_deviation_raw = np.genfromtxt(
                             str(local_path / model_deviation_filename)
                         )
+                        #EB take every other value from model deviation, after first two lines
+                        model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
                         if (
                             exploration_json["systems_auto"][system_auto][
                                 "exploration_type"
@@ -298,12 +301,12 @@ def main(
                             == "i-PI"
                         ):
                             total_row_number = model_deviation.shape[0] + 1
-                    else:
-                        arcann_logger.error(
-                            "Unknown exploration type. Please BUG REPORT!"
-                        )
-                        arcann_logger.error("Aborting...")
-                        return 1
+                        else:
+                            arcann_logger.error(
+                                "Unknown exploration type. Please BUG REPORT!"
+                            )
+                            arcann_logger.error("Aborting...")
+                            return 1
 
                     if nb_steps_expected > (total_row_number - start_row_number):
                         QbC_stats["total_count"] = nb_steps_expected
@@ -335,8 +338,9 @@ def main(
                         ],
                     )
 
-                    if (local_path / "force").is_file():
-                        end_row_number = model_deviation.shape[0] - 1
+                    #eb in forced case, still don't want to select frames after sigma high limit crossed
+                    #if (local_path / "force").is_file():
+                    #    end_row_number = model_deviation.shape[0] - 1
 
                     arcann_logger.debug(
                         f"end_row_number: {end_row_number}, start_row_number: {start_row_number}"
@@ -351,7 +355,7 @@ def main(
                             "exploration_type"
                         ]
                         == "i-PI"
-                    ):
+                    ):  
 
                         # This part is when sigma_high_limit was never crossed
                         if end_row_number < 0:
@@ -713,9 +717,11 @@ def main(
                     QbC_indexes,
                     nb_steps_expected,
                 )
+                #EB save candidates
+                candidates_all.append(candidates.tolist())
 
             del it_number
-
+       
         # Average for the system (with adjustment, remove the skipped ones)
         exploitable_traj = (
             exploration_json["nnp_count"]
@@ -798,11 +804,13 @@ def main(
             "selected_count": 0,
             "discarded_count": 0,
         }
-
+        #EB Loop
+        count = 0
+        with open("he/selected_deviations.out","w") as fdev:
+            print("writing")
+        fdev.close()
         for it_nnp in range(1, main_json["nnp_count"] + 1):
-            for it_number in range(
-                1, exploration_json["systems_auto"][system_auto]["traj_count"] + 1
-            ):
+            for it_number in range(1, exploration_json["systems_auto"][system_auto]["traj_count"] + 1):
                 # Get the local path and the name of model_deviation file
                 local_path = (
                     Path(".").resolve()
@@ -810,6 +818,7 @@ def main(
                     / str(it_nnp)
                     / str(it_number).zfill(5)
                 )
+                print("it_nnp:", it_nnp, " it_number:", it_number)
 
                 model_deviation_filename = (
                     f"model_devi_{system_auto}_{it_nnp}_{padded_curr_iter}.out"
@@ -821,7 +830,6 @@ def main(
                 QbC_indexes = load_json_file(
                     local_path / "QbC_indexes.json", True, False
                 )
-
                 # If it was not skipped
                 if not (local_path / "skip").is_file():
                     # If candidates_count is over max_candidates
@@ -839,7 +847,6 @@ def main(
                                 "candidates_count"
                             ]
                         )
-
                     # Get the local max_candidates
                     QbC_stats["selection_factor"] = selection_factor
                     max_candidates_local = int(
@@ -853,20 +860,41 @@ def main(
 
                     candidate_indexes = np.array(QbC_indexes["candidate_indexes"])
 
-                    # Selection of candidates (as linearly as possible, keeping the first and the last ones)
+                    # Selection of candidates with min-distance constraint
                     if len(candidate_indexes) > max_candidates_local:
-                        selected_indexes = candidate_indexes[
+                        
+                        # Pre-select evenly spaced indices
+                        pre_selected = candidate_indexes[
                             np.round(
-                                np.linspace(
-                                    0, len(candidate_indexes) - 1, max_candidates_local
-                                )
+                                np.linspace(0, len(candidate_indexes) - 1, max_candidates_local)
                             ).astype(int)
                         ]
-                    else:
+                        
+                        # Enforce minimum spacing of 40
+                        selected = []
+
+                        #if frames last in set and last != max timestep, select more frequently
+                        #if traj crashed before the end
+                        last_frame = pre_selected[-1]
+                        
+                        if last_frame <= 19000: 
+                            for idx in pre_selected:
+                                if idx >= last_frame - 1000:
+                                    selected.append(idx)
+                                elif not selected or abs(idx - selected[-1]) >= 40:
+                                    selected.append(idx)
+                        else: 
+                            for idx in pre_selected:
+                                if not selected or abs(idx - selected[-1]) >= 40:
+                                    selected.append(idx)
+                        selected_indexes = np.array(selected, dtype=int)
+
+                    else: 
                         selected_indexes = candidate_indexes
-                    discarded_indexes = np.setdiff1d(
-                        candidate_indexes, selected_indexes
-                    )
+
+                    discarded_indexes = np.setdiff1d(candidate_indexes, selected_indexes)
+
+                    print(f"selected_indexes: {selected_indexes}")
 
                     QbC_indexes = {
                         **QbC_indexes,
@@ -894,6 +922,16 @@ def main(
                             else 0
                         ),
                     }
+                    #save deviations of selected structures
+                    print(f"{it_nnp} / {it_number}")
+                    if len(candidates_all[count]) != 0:
+                        with open("he/selected_deviations.out", "a") as fdev:
+                            for sel in selected_indexes:
+                                for i in range(len(candidates_all[count])):
+                                    if int(candidates_all[count][i][0]) == sel:
+                                        values = map(str, candidates_all[count][i])
+                                        fdev.write("\t".join(values) + "\n")
+                    count += 1
 
                     # Now we get the starting point (the min of selected, or the last good)
                     # Min of selected
@@ -914,7 +952,6 @@ def main(
                                 properties_info,
                                 max_f_std_info,
                             ) = parse_xyz_trajectory_file(local_path / xyz_qm_filename)
-                            model_deviation = np.array(max_f_std_info)
                         elif (
                             exploration_json["systems_auto"][system_auto][
                                 "exploration_type"
@@ -925,9 +962,11 @@ def main(
                             ]
                             == "i-PI"
                         ):
-                            model_deviation = np.genfromtxt(
+                            model_deviation_raw = np.genfromtxt(
                                 str(local_path / model_deviation_filename)
                             )
+                            model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
+                            
                         min_val = 1e30
                         for selected_idx in selected_indexes:
                             if (
@@ -1025,7 +1064,6 @@ def main(
     backup_and_overwrite_json_file(
         current_input_json, (current_path / "used_input.json"), read_only=True
     )
-
     # End
     arcann_logger.info(f"-" * 88)
     arcann_logger.info(

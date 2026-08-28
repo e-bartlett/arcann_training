@@ -122,7 +122,7 @@ def main(
         arcann_logger.error(f"Lock found. Execute first: exploration launch.")
         arcann_logger.error(f"Aborting...")
         return 1
-
+    
     # Check if the vmd package is installed
     vmd_bin = check_vmd(
         get_key_in_dict(
@@ -130,6 +130,7 @@ def main(
         )
     )
     current_input_json["vmd_path"] = vmd_bin
+    
 
     exploration_json["vmd_path"] = vmd_bin
 

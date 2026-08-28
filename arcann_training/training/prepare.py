@@ -35,6 +35,7 @@ from arcann_training.common.list import (
     replace_substring_in_string_list,
     string_list_to_textfile,
     textfile_to_string_list,
+    python_to_string_list,
 )
 from arcann_training.common.machine import (
     get_machine_keyword,
@@ -104,6 +105,18 @@ def main(
     user_input_json_present = bool(user_input_json)
     arcann_logger.debug(f"user_input_json: {user_input_json}")
     arcann_logger.debug(f"user_input_json_present: {user_input_json_present}")
+
+    #EB copy over code
+    analysis_code_1 = python_to_string_list(
+                training_path / "user_files" / "plot_loss.py"
+            )
+    analysis_1 = deepcopy(analysis_code_1)
+    string_list_to_textfile(
+                current_path
+                / "plot_loss.py",
+                analysis_1,
+                read_only=True,
+            )
 
     # Make a deepcopy of it to create the used input JSON
     current_input_json = deepcopy(user_input_json)

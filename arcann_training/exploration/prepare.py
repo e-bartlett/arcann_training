@@ -40,9 +40,11 @@ from arcann_training.common.json import (
     write_json_file,
 )
 from arcann_training.common.list import (
+    replace_substring_in_string_list_python,
     replace_substring_in_string_list,
     string_list_to_textfile,
     textfile_to_string_list,
+    python_to_string_list,
 )
 from arcann_training.common.lammps import read_lammps_data
 from arcann_training.common.machine import (
@@ -335,18 +337,31 @@ def main(
                 training_path / "user_files" / (system_auto + ".in")
             )
 
+            # EB Read in python script
+            master_python_script_in = python_to_string_list(
+                training_path / "user_files" / (system_auto + "_naive_lammps.py")
+            )
+
+            analysis_code_1 = python_to_string_list(
+                training_path / "user_files" / "plot_dev.py"
+            )
+
+            analysis_code_2 = python_to_string_list(
+                training_path / "user_files" / "collect_traj.sh"
+            )
+
             # Add cell info to the LAMMPS input file
             index_run = next(
                 (
                     i
                     for i, item in enumerate(master_system_lammps_in)
-                    if item.startswith("run _R_NUMBER_OF_STEPS_")
+                    if item.startswith("#run _R_NUMBER_OF_STEPS_")
                 ),
                 -1,
             )
             if index_run == -1:
                 arcann_logger.error(
-                    f"No 'run _R_NUMBER_OF_STEPS_' found in the LAMMPS input file: '{training_path / 'user_files' / (system_auto + '.in')}'."
+                    f"No '#run _R_NUMBER_OF_STEPS_' found in the LAMMPS input file: '{training_path / 'user_files' / (system_auto + '.in')}'."
                 )
                 arcann_logger.error(f"Aborting...")
                 return 1
@@ -394,7 +409,7 @@ def main(
             if any("plumed" in zzz for zzz in master_system_ipi_xml_aslist):
                 plumed[0] = True
         # END OF i-PI
-
+                
         # If plumed is being used for the current system, get the plumed input files
         if plumed[0] == 1:
             # Find all plumed files associated with the current system
@@ -424,14 +439,13 @@ def main(
                 )
                 if plumed[1] and plumed[2] != 0:
                     break
-
+        
         # Generate the starting points (if iteration number > 1)
         # Check the iteration number
         if curr_iter == 1:
             # First iteration, so no disturbed starting points
             system_disturbed_start = False
         else:
-            # Get starting points
             (
                 starting_point_list,
                 starting_point_list_bckp,
@@ -458,7 +472,7 @@ def main(
                 return 1
 
         input_replace_dict["_R_TIMESTEP_"] = f"{system_timestep_ps}"
-
+        
         # LAMMPS Input
         if system_exploration_type == "lammps":
             input_replace_dict["_R_TEMPERATURE_"] = f"{system_temperature_K}"
@@ -570,7 +584,6 @@ def main(
                 )
                 system_print_every_x_steps = 1
             input_replace_dict["_R_PRINT_FREQ_"] = f"{int(system_print_every_x_steps)}"
-
         # END OF LAMMPS
 
         # SANDER-EMLE
@@ -853,6 +866,11 @@ def main(
                 # LAMMPS
                 if system_exploration_type == "lammps":
                     system_lammps_in = deepcopy(master_system_lammps_in)
+                    # EB copy python script
+                    python_scipt_in = deepcopy(master_python_script_in)
+                    analysis_1 = deepcopy(analysis_code_1)
+                    analysis_2 = deepcopy(analysis_code_2)
+
                     input_replace_dict["_R_SEED_VEL_"] = (
                         f"{nnp_index}{random.randrange(0, 1000)}{traj_index}{padded_curr_iter}"
                     )
@@ -869,6 +887,13 @@ def main(
                     input_replace_dict["_R_DEVI_OUT_"] = (
                         f"model_devi_{system_auto}_{nnp_index}_{padded_curr_iter}.out"
                     )
+                    input_replace_dict["_R_LAMMPS_IN_"] = (
+                        f"{system_auto}_{nnp_index}_{padded_curr_iter}.in"
+                    )
+                    input_replace_dict["_R_ITER_"] = (
+                        f"{padded_prev_iter}"
+                    )
+
                     # Get data files (starting points) if iteration is > 1
                     if curr_iter > 1:
                         if len(starting_point_list) == 0:
@@ -877,6 +902,7 @@ def main(
                             random.randrange(0, len(starting_point_list))
                         ]
                         starting_point_list.remove(system_lammps_data_fn)
+                        print(system_lammps_data_fn)
                         # Check if the file is in the starting_structures or user_files
                         if (
                             training_path
@@ -900,7 +926,9 @@ def main(
                             )
                             arcann_logger.error(f"Aborting...")
                             return 1
+
                         input_replace_dict["_R_DATA_FILE_"] = system_lammps_data_fn
+                        
                         # Get again the system_cell and nb_atom
                         system_nb_atm, num_atom_types, box, masses, coords = (
                             read_lammps_data(system_lammps_data)
@@ -952,12 +980,22 @@ def main(
                         system_lammps_in = replace_substring_in_string_list(
                             system_lammps_in, key, value
                         )
+
+                    # EB replace values in python script
+                    for key, value in input_replace_dict.items():
+                        python_scipt_in = replace_substring_in_string_list_python(
+                            python_scipt_in, key, value
+                        )
+                    
                     del key, value
                     string_list_to_textfile(
                         local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}.in",
                         system_lammps_in,
                         read_only=True,
                     )
+                    
+                    #EB write python script to path
+                    string_list_to_textfile(local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py", python_scipt_in, read_only=True)
 
                     job_array_params_line = (
                         str(system_auto)
@@ -975,6 +1013,9 @@ def main(
                     )
                     job_array_params_line += (
                         f"{system_auto}_{nnp_index}_{padded_curr_iter}.in" + "/"
+                    )
+                    job_array_params_line += (
+                        f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py" + "/"
                     )
                     job_array_params_line += f"{system_lammps_data_fn}" + "/"
                     job_array_params_line += "" + "/"
@@ -1002,6 +1043,12 @@ def main(
                         job_file,
                         "_R_LAMMPS_IN_FILE_",
                         f"{system_auto}_{nnp_index}_{padded_curr_iter}.in",
+                    )
+                    #EB replace in job 
+                    job_file = replace_substring_in_string_list(
+                        job_file,
+                        "_R_LAMMPS_PYTHON_SCRIPT_",
+                        f"{system_auto}_{nnp_index}_{padded_curr_iter}_naive_lammps.py",
                     )
                     job_file = replace_substring_in_string_list(
                         job_file,
@@ -1605,6 +1652,19 @@ def main(
                 job_array_params_file[exploration_type],
                 read_only=True,
             )
+            string_list_to_textfile(
+                current_path
+                / "plot_dev.py",
+                analysis_1,
+                read_only=True,
+            )
+            string_list_to_textfile(
+                current_path
+                / "collect_traj.sh",
+                analysis_2,
+                read_only=True,
+            )
+
 
         del exploration_types
 

@@ -213,6 +213,7 @@ def main(
         )
         candidates_files = []
         candidates_disturbed_files = []
+        elec_files = []
 
         print_every_x_steps = exploration_json["systems_auto"][system_auto][
             "print_every_x_steps"
@@ -276,7 +277,7 @@ def main(
                     local_path / "QbC_indexes.json", True, False
                 )
                 arcann_logger.debug(QbC_stats)
-
+                
                 if (local_path / "cell.txt").is_file():
                     cell_array = np.genfromtxt(local_path / "cell.txt")
                     cella = cell_array[:, 1] - cell_array[:, 0]
@@ -290,7 +291,7 @@ def main(
                     cellc = main_json["systems_auto"][system_auto]["cell"][2]
                     is_cell_constant = True
                 arcann_logger.debug(f"is_cell_constant: {is_cell_constant}")
-
+                
                 # Selection of the structure for the next iteration starting point
                 if QbC_stats["minimum_index"] != -1:
                     if (
@@ -382,10 +383,15 @@ def main(
                             starting_structures_path
                             / f"{min_file_name}_{padded_min_index}.xyz"
                         )
+                        print(starting_structures_path
+                            / f"{min_file_name}_{padded_min_index}.xyz")
                         if not is_cell_constant:
-                            extended_xyz_header = f'Lattice="{cella[min_index]} 0.0000 0.0000 0.0000 {cellb[min_index]} 0.0000 0.0000 0.0000 {cellc[min_index]}" Properties=species:S:1:pos:R:3 Frame={min_index}'
+                            extended_xyz_header = f'Lattice="{12.43} 0.0000 0.0000 0.0000 {12.43} 0.0000 0.0000 0.0000 {12.43}" Properties=species:S:1:pos:R:3 Frame={min_index}' #EB hardcoded, some error in extended exploration
                         else:
                             extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={min_index}'
+                        #print(xyz_string)
+                        #print(extended_xyz_header)
+
                         xyz_string = (
                             [xyz_string[0]] + [extended_xyz_header] + xyz_string[2:]
                         )
@@ -404,12 +410,13 @@ def main(
                             starting_structures_path
                             / f"{min_file_name}_{padded_min_index}.lmp"
                         )
+
                         subprocess.run(
                             [
                                 atomsk_bin,
-                                "-ow",
-                                "-properties",
-                                str(Path("..") / "user_files" / "properties.txt"),
+                                #"-ow",
+                                #"-properties",
+                                #str(Path("..") / "user_files" / "properties.txt"),
                                 str(
                                     Path("..")
                                     / "starting_structures"
@@ -433,6 +440,12 @@ def main(
                             lmp_file,
                             "0.00000000              # XX",
                             "1.00000000              # XX",
+                        )
+                        #EB modify to change electron mass
+                        lmp_file = replace_substring_in_string_list(
+                            lmp_file,
+                            "3   6.94000000              # Li",
+                            "3   0.00054858              # X",
                         )
                         string_list_to_textfile(
                             starting_structures_path
@@ -678,10 +691,16 @@ def main(
                                 extended_xyz_header = f'Lattice="{cella[index_xyz]} 0.0000 0.0000 0.0000 {cellb[index_xyz]} 0.0000 0.0000 0.0000 {cellc[index_xyz]}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
                             else:
                                 extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
-                            xyz_string = (
-                                [xyz_string[0]] + [extended_xyz_header] + xyz_string[2:]
+                            #EB modified to output only water and only elec files
+                            water_xyz_string = (
+                                ["192"] + [extended_xyz_header] + xyz_string[2:-1]
                             )
-                            string_list_to_textfile(xyz_files, xyz_string)
+                            elec_string = (["1"] + [extended_xyz_header] + [xyz_string[-1]])
+                            path = Path(xyz_files)
+                            elec_path = path.with_name("elec_" + path.name)
+                            string_list_to_textfile(xyz_files, water_xyz_string)
+                            string_list_to_textfile(elec_path, elec_string)
+
                             del xyz_string, extended_xyz_header, index_xyz
                         del xyz_files
 
@@ -699,6 +718,18 @@ def main(
                                     / str(it_nnp)
                                     / str(it_number).zfill(5)
                                     / ("candidates_" + _ + ".xyz")
+                                )
+                                for _ in candidate_indexes_padded
+                            ]
+                        )
+                        elec_files.extend(
+                            [
+                                str(
+                                    Path(".")
+                                    / str(system_auto)
+                                    / str(it_nnp)
+                                    / str(it_number).zfill(5)
+                                    / ("elec_candidates_" + _ + ".xyz")
                                 )
                                 for _ in candidate_indexes_padded
                             ]
@@ -825,7 +856,7 @@ def main(
                                 atomic_coordinates,
                                 np.array([]),
                                 comments,
-                            )
+                            )   
                             candidates_files.append(
                                 str(
                                     Path(".")
@@ -835,6 +866,16 @@ def main(
                                     / ("candidates_" + _ + ".xyz")
                                 )
                             )
+                            elec_files.append(
+                                str(
+                                    Path(".")
+                                    / str(system_auto)
+                                    / str(it_nnp)
+                                    / str(it_number).zfill(5)
+                                    / ("elec_candidates_" + _ + ".xyz")
+                                )
+                            )
+                            
 
                         if disturbed_candidate_value != 0:
                             arcann_logger.warning(
@@ -887,6 +928,21 @@ def main(
                 del candidate_xyz_file
             del candidates_xyz_file, f
         del candidates_files
+        if elec_files:
+            elecs_xyz_file = (
+                current_path
+                / system_auto
+                / f"elec_candidates_{padded_curr_iter}_{system_auto}.xyz"
+            )
+            remove_file(elecs_xyz_file)
+            with open(elecs_xyz_file, "w") as f:
+                for elec_xyz_file in elec_files:
+                    f.write((current_path / elec_xyz_file).read_text())
+                    remove_file((current_path / elec_xyz_file))
+                del elec_xyz_file
+            del elecs_xyz_file, f
+        del elec_files
+
 
         if candidates_disturbed_files:
             candidates_disturbed_xyz_file = (
