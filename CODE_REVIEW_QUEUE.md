@@ -47,6 +47,9 @@ calls the Chunk-2 converter and stages the Chunk-2 yaml/job templates).
       `mean_s_per_step` left as `prepare.py` set it — observed epoch timing
       is in MACE's `results/*.txt`, not `training.log`; parsing it is a
       later refinement (noted in-code).
+- [ ] `arcann_training/training/check_freeze.py` — MACE branch: per-NNP
+      success is `NNP/mace_<nnp>_<iter>.model-lammps.pt` existing (not a
+      per-folder `graph_*.pb`); sets `is_frozen` when all present.
 - [ ] `arcann_training/training/freeze.py` — MACE branch (returns before the
       machine-spec/sbatch code): no job. Runs
       `<mace_env>/bin/mace_create_lammps_model --dtype float32
