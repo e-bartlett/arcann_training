@@ -29,7 +29,7 @@ The one fork-side piece of Chunk 4 part C (the rest is repo job scripts).
   `test_check.py` error). **P3 confirms** the raw series feeds
   `get_last_frame_number` / the `sigma` filtering sensibly.
 
-Commit: <hash, filled in after committing>
+Commit: 1176fde
 
 ---
 
