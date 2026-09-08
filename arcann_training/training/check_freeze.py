@@ -71,7 +71,7 @@ def main(
             frozen_file = (
                 training_path
                 / "NNP"
-                / f"mace_{nnp}_{padded_curr_iter}.model-lammps.pt"
+                / f"mace_{nnp}_{padded_curr_iter}.model-mliap_lammps.pt"
             )
         else:
             frozen_file = local_path / f"graph_{nnp}_{padded_curr_iter}.pb"

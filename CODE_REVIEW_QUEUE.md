@@ -14,6 +14,62 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-08 — Chunk 6: ML-IAP / cuEq exploration path (fork half of Phase 3.5 step 6c)
+
+`MD_PERFORMANCE_PLAN.md` Phase 3.5 replaced the e3nn `pair_style mace`
+MD driver with the cuEquivariance / LAMMPS ML-IAP one (`he_mace_md_mliap.py`,
+~5x, ~0.72 ns/day on A40). Step 6c makes it the default ArcaNN exploration
+driver. Repo half (user-files + plan) was committed in the hydrated_electron
+repo 2026-09-08. This is the fork half.
+
+User decisions (2026-09-08): (1) `freeze.py` mace branch **submits an sbatch
+job** for the mliap conversion (not inline) — `mace_create_lammps_model
+--format=mliap` runs `run_e3nn_to_cueq` + builds cueq kernels on-GPU and
+must be the same Kokkos arch as inference; (2) production pins **A40 /
+AMPERE86**.
+
+- [ ] `arcann_training/exploration/utils.py` — `create_models_list` mace
+  branch: `models_list[0]` (the propagated model, run in LAMMPS via
+  `pair_style mliap unified`) is now
+  `mace_<reorder[0]>_<prev>.model-mliap_lammps.pt`; members 1..K-1 are the
+  plain `.model` (Python committee eval only — the ML-IAP pickle can't be
+  loaded that way). Symlink loop now links each NNP's
+  `.model-mliap_lammps.pt` + `.model` (was `.model-lammps.pt` + `.model`).
+  Reorder/return contract unchanged. DeePMD path untouched.
+- [ ] `arcann_training/training/freeze.py` — mace branch rewritten from an
+  inline `mace_create_lammps_model --dtype float32` call to an sbatch
+  flow mirroring the DeePMD path directly below it: `is_freeze_launched`
+  re-launch guard, machine-spec resolution (`get_machine_keyword` +
+  `get_machine_spec_for_step(..., "freezing", ...)`), read
+  `user_files/job_mace_freeze_<arch>_<machine>.sh`, per-NNP
+  `replace_in_slurm_file_general` + `_R_MACE_MODEL_` / `_R_MACE_NNP_DIR_`
+  / `_R_MACE_LOG_` substitution, `string_list_to_textfile` into `<nnp>/`,
+  `subprocess.run([machine_launch_command, ...])` from `<nnp>/`. Sets only
+  `is_freeze_launched` (was also `is_frozen` — now `check_freeze`'s job).
+  Writes `config.json` / `training_<iter>.json` / `used_input.json` like
+  the DeePMD path. Also drops the stale `check_directory(nnp_dir)` call
+  (that name was never imported in this module — latent `NameError` in the
+  old mace branch); uses `nnp_dir.mkdir(parents=True, exist_ok=True)`.
+  All names used are already imported at module top. `py_compile` +
+  `import arcann_training.training.freeze` both clean in the `arcann` env.
+- [ ] `arcann_training/training/check_freeze.py` — the mace `frozen_file`
+  it checks: `mace_<nnp>_<iter>.model-lammps.pt` ->
+  `mace_<nnp>_<iter>.model-mliap_lammps.pt`.
+- [ ] `arcann_training/training/increment.py` — comment-only:
+  `NNP/mace_<nnp>_<iter>.{model,model-lammps.pt}` ->
+  `{model,model-mliap_lammps.pt}` (the mace check_file_existence /
+  copy-skip logic is unchanged — it only ever names the plain `.model`).
+
+New user-file `erb_user_files/job_mace_freeze_gpu_login1.sh` lives in the
+**hydrated_electron repo** `erb_user_files/` only (queued there), matching
+where Chunk 4 put the other MACE user-files — the fork's `erb_user_files/`
+has no MACE job scripts. That divergence predates this turn; noted in
+`ARCANN_TANDEM_PLAN.md` step 2b.
+
+Commit: <pending>
+
+---
+
 ## 2026-08-28 — Chunk 4 (part C): exploration/deviate.py MACE model_devi branch
 
 The one fork-side piece of Chunk 4 part C (the rest is repo job scripts).

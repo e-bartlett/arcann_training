@@ -94,7 +94,7 @@ def main(
     )
 
     # Copy the models to the NNP meta folder. For MACE, training/freeze.py
-    # has already placed NNP/mace_<nnp>_<iter>.{model,model-lammps.pt}, so
+    # has already placed NNP/mace_<nnp>_<iter>.{model,model-mliap_lammps.pt}, so
     # there is nothing to copy here.
     (training_path / "NNP").mkdir(exist_ok=True)
     check_directory(training_path / "NNP")

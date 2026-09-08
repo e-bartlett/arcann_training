@@ -772,19 +772,22 @@ def create_models_list(
         list_nnp[list_nnp.index(it_nnp) :] + list_nnp[: list_nnp.index(it_nnp)]
     )
 
-    # MACE tandem committee: LAMMPS-deployable TorchScript models, never compressed.
-    # Same reorder/symlink/return contract as the DeePMD path below. models_list /
-    # models_string carry only the .model-lammps.pt names (what pair_style mace
-    # loads); the plain .model siblings are symlinked in too, for the Python
-    # committee force eval in he_mace_md.py (MACECalculator-style load, which the
-    # LAMMPS-compiled .model-lammps.pt can't serve).
+    # MACE tandem committee (MD_PERFORMANCE_PLAN.md Phase 3.5, ML-IAP / cuEq
+    # path), never compressed. Same reorder/symlink/return contract as the
+    # DeePMD path below. Only model 0 -- reorder_nnp_list[0], the model LAMMPS
+    # propagates via `pair_style mliap unified` -- is named as the
+    # `.model-mliap_lammps.pt` pickle (mace_create_lammps_model --format=mliap).
+    # Members 1..K-1 are evaluated only in Python for the committee force
+    # spread, so they are the plain `.model` checkpoints (the ML-IAP pickle
+    # can't be loaded that way). Every NNP's `.model` and `.model-mliap_lammps.pt`
+    # is symlinked in -- each NNP takes a turn as model 0 across the traj set.
     if main_json.get("mlip_engine", "deepmd") == "mace":
         models_list = [
-            f"mace_{f}_{padded_prev_iter}.model-lammps.pt" for f in reorder_nnp_list
-        ]
+            f"mace_{reorder_nnp_list[0]}_{padded_prev_iter}.model-mliap_lammps.pt"
+        ] + [f"mace_{f}_{padded_prev_iter}.model" for f in reorder_nnp_list[1:]]
         for it_sub_nnp in range(1, main_json["nnp_count"] + 1):
             stem = training_path / "NNP" / f"mace_{it_sub_nnp}_{padded_prev_iter}.model"
-            for src in (stem.with_name(stem.name + "-lammps.pt"), stem):
+            for src in (stem.with_name(stem.name + "-mliap_lammps.pt"), stem):
                 subprocess.call(["ln", "-nsf", str(src.resolve()), str(local_path)])
         models_string = " ".join(models_list)
         return models_list, models_string

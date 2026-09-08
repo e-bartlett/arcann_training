@@ -99,72 +99,149 @@ def main(
     main_json = load_json_file((control_path / "config.json"))
     training_json = load_json_file((control_path / f"training_{padded_curr_iter}.json"))
 
-    # MACE: "freezing" is just compiling each trained model to the LAMMPS
-    # TorchScript format with mace_create_lammps_model. No job, no sbatch --
-    # it runs here, in the mace_electron env (main_json["mace_env"];
-    # falls back to PATH). Deploy float32 (LAMMPS pair_style mace is
-    # float32). Both files land in NNP/ as mace_<nnp>_<iter>.{model,
-    # model-lammps.pt}.
+    # MACE "freezing" = compile each trained `.model` to the LAMMPS ML-IAP
+    # deployable with `mace_create_lammps_model --format=mliap --dtype float32`
+    # (cuEquivariance fused kernels; MD_PERFORMANCE_PLAN.md Phase 3.5). That
+    # conversion must run on a GPU of the same Kokkos arch as inference
+    # (AMPERE86 / A40), so -- unlike the old libtorch `.model-lammps.pt` path,
+    # which needed no GPU -- it is an sbatch job, not an inline call. Mirrors
+    # the DeePMD freeze flow below: this phase only launches; `training
+    # check_freeze` verifies NNP/mace_<nnp>_<iter>.model-mliap_lammps.pt and
+    # sets is_frozen. The freeze job rsyncs the plain `.model` and the
+    # `.model-mliap_lammps.pt` into NNP/.
     if main_json.get("mlip_engine", "deepmd") == "mace":
+        if training_json["is_freeze_launched"]:
+            arcann_logger.critical(f"Already launched...")
+            continuing = input(
+                f"Do you want to continue?\n['Y' for yes, anything else to abort]\n"
+            )
+            if continuing == "Y":
+                del continuing
+            else:
+                arcann_logger.error(f"Aborting...")
+                return 0
         if not training_json["is_checked"]:
             arcann_logger.error(f"Lock found. Please execute 'training check' first.")
             arcann_logger.error(f"Aborting...")
             return 1
 
-        mace_env = main_json.get("mace_env", "")
-        create_lammps_model = (
-            f"{mace_env}/bin/mace_create_lammps_model"
-            if mace_env
-            else "mace_create_lammps_model"
+        if curr_iter > 0:
+            previous_training_json = load_json_file(
+                (control_path / f"training_{str(curr_iter - 1).zfill(3)}.json")
+            )
+        else:
+            previous_training_json = {}
+
+        for key in ["user_machine_keyword_freeze", "job_email"]:
+            if user_input_json_present and key in user_input_json:
+                current_input_json[key] = user_input_json[key]
+            elif key in previous_training_json:
+                current_input_json[key] = previous_training_json[key]
+            else:
+                current_input_json[key] = default_input_json[key]
+
+        user_machine_keyword = get_machine_keyword(
+            current_input_json, training_json, default_input_json, "freeze"
         )
+        user_machine_keyword = (
+            None if isinstance(user_machine_keyword, bool) else user_machine_keyword
+        )
+        (
+            machine,
+            machine_walltime_format,
+            machine_job_scheduler,
+            machine_launch_command,
+            machine_max_jobs,
+            machine_max_array_size,
+            user_machine_keyword,
+            machine_spec,
+        ) = get_machine_spec_for_step(
+            deepmd_iterative_path,
+            training_path,
+            "freezing",
+            fake_machine,
+            user_machine_keyword,
+        )
+        current_input_json["user_machine_keyword_freeze"] = user_machine_keyword
+        training_json["user_machine_keyword_freeze"] = user_machine_keyword
+        if fake_machine is not None:
+            arcann_logger.info(f"Pretending to be on: '{fake_machine}'.")
+        else:
+            arcann_logger.info(f"Machine identified: '{machine}'.")
+        del fake_machine
+
+        job_file_name = f"job_mace_freeze_{machine_spec['arch_type']}_{machine}.sh"
+        if (current_path.parent / "user_files" / job_file_name).is_file():
+            master_job_file = textfile_to_string_list(
+                current_path.parent / "user_files" / job_file_name
+            )
+        else:
+            arcann_logger.error(
+                f"No JOB file provided for '{current_step.capitalize()} / {current_phase.capitalize()}' for this machine."
+            )
+            arcann_logger.error(f"Aborting...")
+            return 1
+        del job_file_name
+
         nnp_dir = training_path / "NNP"
-        nnp_dir.mkdir(exist_ok=True)
-        check_directory(nnp_dir)
+        nnp_dir.mkdir(parents=True, exist_ok=True)
 
         completed_count = 0
+        walltime_approx_s = 1800
         for nnp in range(1, main_json["nnp_count"] + 1):
             local_path = current_path / f"{nnp}"
-            model_file = local_path / f"mace_{nnp}_{padded_curr_iter}.model"
-            check_file_existence(model_file)
+            model_name = f"mace_{nnp}_{padded_curr_iter}.model"
+            check_file_existence(local_path / model_name)
 
-            lammps_model_file = model_file.with_name(model_file.name + "-lammps.pt")
-            try:
-                subprocess.run(
-                    [
-                        create_lammps_model,
-                        "--dtype",
-                        "float32",
-                        str(model_file),
-                    ],
-                    check=True,
-                )
-            except (FileNotFoundError, subprocess.CalledProcessError) as err:
-                arcann_logger.critical(
-                    f"MACE Freeze - '{nnp}' failed: '{create_lammps_model}' ({err})."
-                )
-                del local_path, model_file, lammps_model_file
-                continue
+            job_file = replace_in_slurm_file_general(
+                master_job_file,
+                machine_spec,
+                walltime_approx_s,
+                machine_walltime_format,
+                current_input_json["job_email"],
+            )
+            job_file = replace_substring_in_string_list(
+                job_file, "_R_MACE_MODEL_", model_name
+            )
+            job_file = replace_substring_in_string_list(
+                job_file, "_R_MACE_NNP_DIR_", str(nnp_dir.resolve())
+            )
+            job_file = replace_substring_in_string_list(
+                job_file, "_R_MACE_LOG_", f"mace_{nnp}_{padded_curr_iter}_freeze.log"
+            )
+            job_out_name = f"job_mace_freeze_{machine_spec['arch_type']}_{machine}.sh"
+            string_list_to_textfile(local_path / job_out_name, job_file, read_only=True)
+            del job_file
 
-            if lammps_model_file.is_file():
-                for src in (model_file, lammps_model_file):
-                    subprocess.run(["rsync", "-a", str(src), str(nnp_dir)])
-                arcann_logger.info(f"MACE Freeze - '{nnp}' done.")
-                completed_count += 1
+            if (local_path / job_out_name).is_file():
+                change_directory(local_path)
+                try:
+                    subprocess.run([machine_launch_command, f"./{job_out_name}"])
+                    arcann_logger.info(f"MACE Freeze - '{nnp}' launched.")
+                    completed_count += 1
+                except FileNotFoundError:
+                    arcann_logger.critical(
+                        f"MACE Freeze - '{nnp}' NOT launched - '{machine_launch_command}' not found."
+                    )
+                change_directory(local_path.parent)
             else:
                 arcann_logger.critical(
-                    f"MACE Freeze - '{nnp}' produced no '{lammps_model_file.name}'."
+                    f"MACE Freeze - '{nnp}' NOT launched - No job file."
                 )
-            del local_path, model_file, lammps_model_file
-        del nnp
+            del local_path, model_name, job_out_name
+        del nnp, master_job_file
 
         if completed_count == main_json["nnp_count"]:
             training_json["is_freeze_launched"] = True
-            training_json["is_frozen"] = True
 
+        write_json_file(main_json, (control_path / "config.json"), read_only=True)
         write_json_file(
             training_json,
             (control_path / f"training_{padded_curr_iter}.json"),
             read_only=True,
+        )
+        backup_and_overwrite_json_file(
+            current_input_json, (current_path / "used_input.json"), read_only=True
         )
 
         arcann_logger.info(f"-" * 88)
@@ -174,10 +251,10 @@ def main(
             )
             return 0
         arcann_logger.critical(
-            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a failure!"
+            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is semi-success!"
         )
-        arcann_logger.critical(f"Some MACE models were not compiled for LAMMPS.")
-        arcann_logger.critical(f"Aborting...")
+        arcann_logger.critical(f"Some MACE freeze jobs did not launch correctly.")
+        arcann_logger.critical(f"Please launch manually before continuing.")
         return 1
 
     # Load the previous training JSON
