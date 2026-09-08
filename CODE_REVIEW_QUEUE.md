@@ -66,7 +66,7 @@ where Chunk 4 put the other MACE user-files — the fork's `erb_user_files/`
 has no MACE job scripts. That divergence predates this turn; noted in
 `ARCANN_TANDEM_PLAN.md` step 2b.
 
-Commit: <pending>
+Commit: 0e67507
 
 ---
 
