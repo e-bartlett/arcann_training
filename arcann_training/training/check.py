@@ -75,6 +75,8 @@ def main(
     # renaming, no neighbor-list parsing. mean_s_per_step is left as
     # training/prepare.py set it (observed epoch timing lands in MACE's
     # results/*.txt, not training.log -- parsing it is a later refinement).
+    # MACE's logger prefixes every line with "<timestamp> INFO: ", so the
+    # final marker lands as "... INFO: Done", not a bare "Done".
     if main_json.get("mlip_engine", "deepmd") == "mace":
         completed_count = 0
         for nnp in range(1, main_json["nnp_count"] + 1):
@@ -84,7 +86,7 @@ def main(
             log_done = (
                 log_file.is_file()
                 and any(
-                    line.strip() == "Done"
+                    line.rstrip().endswith("Done")
                     for line in textfile_to_string_list(log_file)[-20:]
                 )
             )

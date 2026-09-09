@@ -14,6 +14,26 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-09 — training check: match MACE's prefixed "Done" log line
+
+`training check`'s MACE branch decided a force run had finished by testing
+`line.strip() == "Done"` over the last 20 lines of `<nnp>/training.log`.
+MACE's logger prefixes every line with `<timestamp> INFO: `, so the real
+marker is `... INFO: Done` and the exact-equality test never matched —
+`000-training` reported all three runs "not finished/failed" even though
+every `mace_run_train` exited 0 with its model written. Loosened to
+`line.rstrip().endswith("Done")`.
+
+- [ ] `arcann_training/training/check.py` — MACE done-check uses
+  `.rstrip().endswith("Done")` instead of `.strip() == "Done"`; comment
+  added noting the logger prefix. Centroid check
+  (`startswith("best valid RMSE:")`) unchanged — `train_centroid.py`
+  prints that line unprefixed.
+
+Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
+
+Commit: <hash>
+
 ## 2026-09-09 — plot_loss.py: make the MACE panel read the real metrics
 
 Follow-up to the centroid-panel entry below. The MACE panel plotted the
