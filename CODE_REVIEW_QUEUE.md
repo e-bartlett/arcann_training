@@ -52,7 +52,7 @@ hydrated_electron repo's `CODE_REVIEW_QUEUE.md` (which lists the vendored
   `centroid_label_from_cube.py --labeling-root <iter>-labeling/<sys> --out
   control/centroid_labels.csv` (interpreter = `main_json["mace_env"]`;
   logs an error but does not abort on nonzero). New import: `subprocess`.
-Commit: <fill after commit>
+Commit: c9b97e5b47e7bf5ecdac319e8fd5cc015a24a2b1
 
 ---
 
