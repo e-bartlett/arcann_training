@@ -26,7 +26,7 @@ history is not truncated. Mirrored in the hydrated_electron repo's
 - [ ] `erb_user_files/job_mace_train_gpu_login1.sh` — one line added
   (`--restart_latest \` after `--seed`), one line changed
   (`>> "${MACE_LOG}" 2>&1`).
-Commit: PLACEHOLDER_FORK
+Commit: e168253c267d4f29d781a5bc9a7b656a7925a93b
 
 ---
 
