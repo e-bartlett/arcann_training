@@ -14,6 +14,29 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-09 — plot_loss.py: make the MACE panel read the real metrics
+
+Follow-up to the centroid-panel entry below. The MACE panel plotted the
+`loss` series over every optimizer minibatch row (`mode == "opt"`,
+~45k/panel) mixed with per-epoch eval rows, so a noisy band swamped the
+RMSE curves; it also only ever showed stage-one numbers (the deployed SWA
+stage-two model is ~10-30x better on energy and never appears in the JSON
+eval rows).
+
+- [ ] `erb_user_files/plot_loss.py` — `plot_mace` rewritten: eval rows only
+  (`mode == "eval"`, drop the null-epoch "Initial" row), plot per-epoch
+  valid E RMSE (meV/atom, left log axis) and F RMSE (meV/A, right twin log
+  axis), drop the raw `loss` series. New `mace_stage_two_valid(nnp_dir)`
+  parses the last `| valid_Default |` row of `<nnp>/training.log` and draws
+  it as a dashed reference line per axis. `plot_mace` now takes `nnp_dir`.
+  `main`: DeePMD branch keeps its own `loss / RMSE` styling; centroid panel
+  x-axis `symlog` -> linear (epochs start at 1, the negative tick was
+  noise). Figure widened for the twin-axis labels.
+
+Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
+
+Commit:
+
 ## 2026-09-09 — plot_loss.py: add a centroid-model panel
 
 `plot_loss.py` (staged into each `<iter>-training/` by `training prepare`)
