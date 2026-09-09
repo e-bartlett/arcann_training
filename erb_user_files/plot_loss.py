@@ -9,6 +9,10 @@ Handles both engines per NNP:
   * DeePMD  -> <nnp>/lcurve.out            (whitespace table, `dp train`)
   * MACE    -> <nnp>/results/*.txt         (JSON lines, mace_run_train)
 
+If the centroid (electron-position) model has run this iteration, its
+per-epoch history (centroid/centroid_<iter>_history.json, written by
+train_centroid.py) gets an extra panel on the right.
+
 Writes loss.png next to this script.
 """
 
@@ -51,9 +55,27 @@ def plot_mace(ax, results_txt):
     ax.set_xlabel("epoch")
 
 
+def plot_centroid(ax, history_json):
+    history = json.loads(Path(history_json).read_text())
+    if not history:
+        return
+    epochs = [h["epoch"] for h in history]
+    for j, key in enumerate(("train_rmse", "valid_rmse")):
+        ax.plot(epochs, [h[key] for h in history], label=key, color=COLORS[j % len(COLORS)])
+    ax_lr = ax.twinx()
+    ax_lr.plot(epochs, [h["lr"] for h in history], color=COLORS[3], linestyle=":", label="lr")
+    ax_lr.set_yscale("log")
+    ax_lr.set_ylabel("learning rate")
+    ax.set_xlabel("epoch")
+    handles = ax.get_lines() + ax_lr.get_lines()
+    ax.legend(handles, [h.get_label() for h in handles], loc="upper right")
+
+
 def main():
     n = nnp_count()
-    fig, axes = plt.subplots(1, n, figsize=(3 * n, 4), squeeze=False)
+    centroid_hist = sorted(glob.glob("centroid/centroid_*_history.json"))
+    ncols = n + (1 if centroid_hist else 0)
+    fig, axes = plt.subplots(1, ncols, figsize=(3 * ncols, 4), squeeze=False)
     for i in range(1, n + 1):
         ax = axes[0][i - 1]
         lcurve = Path(f"{i}/lcurve.out")
@@ -71,6 +93,15 @@ def main():
         ax.set_yscale("log")
         ax.grid()
         ax.legend()
+
+    if centroid_hist:
+        ax = axes[0][n]
+        plot_centroid(ax, centroid_hist[0])
+        ax.set_title("centroid model")
+        ax.set_ylabel(r"RMSE ($\AA$)")
+        ax.set_xscale("symlog")
+        ax.set_yscale("log")
+        ax.grid()
 
     plt.tight_layout()
     plt.savefig("loss.png", dpi=150)

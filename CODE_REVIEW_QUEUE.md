@@ -14,6 +14,23 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-09 — plot_loss.py: add a centroid-model panel
+
+`plot_loss.py` (staged into each `<iter>-training/` by `training prepare`)
+plotted only the per-NNP force/energy loss curves. It now adds one more
+panel on the right when `centroid/centroid_<iter>_history.json` exists
+(written per-epoch by `train_centroid.py`): train/valid centroid RMSE on a
+log y-axis plus the learning-rate schedule on a twin axis, so a
+`ReduceLROnPlateau` drop is visible against the curve it responds to.
+
+- [ ] `erb_user_files/plot_loss.py` — new `plot_centroid(ax, history_json)`;
+  `main` globs `centroid/centroid_*_history.json` and widens the figure by
+  one column when present. No change to the DeePMD/MACE paths.
+
+Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
+
+Commit: 4b62da7
+
 ## 2026-09-09 — CentroidMACE training folded into the `training` step
 
 The MACE branches of `training` gain a parallel "centroid" arm so the
