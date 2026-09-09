@@ -35,7 +35,7 @@ eval rows).
 
 Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
 
-Commit:
+Commit: 1a77bcb
 
 ## 2026-09-09 — plot_loss.py: add a centroid-model panel
 
