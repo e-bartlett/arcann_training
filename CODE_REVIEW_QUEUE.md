@@ -14,6 +14,22 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-09 — MACE train job: --restart_latest for checkpoint resume
+
+First-cycle committee trainings hit the `sixhour` 6 h wall at epoch ~288/400.
+Add `--restart_latest` to the `mace_run_train` call so a resubmit resumes from
+the latest checkpoint (model + optimizer + scheduler + EMA + epoch counter),
+and change the training-log redirect `>` -> `>>` so the pre-resume epoch
+history is not truncated. Mirrored in the hydrated_electron repo's
+`CODE_REVIEW_QUEUE.md`.
+
+- [ ] `erb_user_files/job_mace_train_gpu_login1.sh` — one line added
+  (`--restart_latest \` after `--seed`), one line changed
+  (`>> "${MACE_LOG}" 2>&1`).
+Commit: PLACEHOLDER_FORK
+
+---
+
 ## 2026-09-08 — Chunk 6: ML-IAP / cuEq exploration path (fork half of Phase 3.5 step 6c)
 
 `MD_PERFORMANCE_PLAN.md` Phase 3.5 replaced the e3nn `pair_style mace`

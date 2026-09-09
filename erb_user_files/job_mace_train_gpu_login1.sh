@@ -73,13 +73,14 @@ mace_run_train \
     --config "${MACE_CONFIG}" \
     --name "${MACE_NAME}" \
     --seed "${MACE_SEED}" \
+    --restart_latest \
     --model_dir . \
     --log_dir . \
     --checkpoints_dir ./checkpoints \
     --results_dir ./results \
     --train_file train.xyz \
     --valid_file valid.xyz \
-    > "${MACE_LOG}" 2>&1
+    >> "${MACE_LOG}" 2>&1
 STATUS=$?
 echo "# [$(date)] mace_run_train finished (status ${STATUS})."
 
