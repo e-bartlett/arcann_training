@@ -32,7 +32,7 @@ every `mace_run_train` exited 0 with its model written. Loosened to
 
 Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
 
-Commit: <hash>
+Commit: 2fc5228
 
 ## 2026-09-09 — plot_loss.py: make the MACE panel read the real metrics
 
