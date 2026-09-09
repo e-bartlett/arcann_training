@@ -154,6 +154,30 @@ def main(
         del local_path, job_file_name
     del nnp
 
+    # MACE tandem: also submit the centroid (electron-position) training job
+    # that training/prepare.py staged into <iter>-training/centroid/. It runs
+    # in parallel with the force jobs; `training check` waits on both.
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        centroid_dir = current_path / "centroid"
+        centroid_job_name = (
+            f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
+        )
+        if (centroid_dir / centroid_job_name).is_file():
+            change_directory(centroid_dir)
+            try:
+                subprocess.run([machine_launch_command, f"./{centroid_job_name}"])
+                arcann_logger.info(f"MACE Centroid Train - launched.")
+                training_json["is_centroid_launched"] = True
+            except FileNotFoundError:
+                arcann_logger.critical(
+                    f"MACE Centroid Train - NOT launched - '{machine_launch_command}' not found."
+                )
+            change_directory(current_path)
+        else:
+            arcann_logger.critical(
+                f"MACE Centroid Train - NOT launched - no {centroid_job_name}."
+            )
+
     arcann_logger.info(f"-" * 88)
     # Update the boolean in the training JSON
     if completed_count == main_json["nnp_count"]:

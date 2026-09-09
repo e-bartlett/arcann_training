@@ -83,9 +83,26 @@ def main(
     del nnp
     arcann_logger.debug(f"completed_count: {completed_count}")
 
+    force_frozen = completed_count == main_json["nnp_count"]
+
+    # MACE tandem: the centroid job (training/launch.py) rsynced the trained
+    # cueq-native NNP/centroid_<iter>.model. exploration/prepare.py symlinks
+    # it as _R_CENTROID_MODEL_, so require it here too.
+    centroid_ok = True
+    if is_mace:
+        centroid_model = (
+            training_path / "NNP" / f"centroid_{padded_curr_iter}.model"
+        )
+        centroid_ok = centroid_model.is_file()
+        if not centroid_ok:
+            arcann_logger.critical(
+                f"MACE Centroid - {centroid_model} missing (run 'training check' "
+                f"and wait for the centroid job)."
+            )
+
     arcann_logger.info(f"-" * 88)
     # Update the boolean in the training JSON
-    if completed_count == main_json["nnp_count"]:
+    if force_frozen and centroid_ok:
         training_json["is_frozen"] = True
 
     # Dump the JSON (training JSON)
@@ -97,7 +114,7 @@ def main(
 
     # End
     arcann_logger.info(f"-" * 88)
-    if completed_count == main_json["nnp_count"]:
+    if force_frozen and centroid_ok:
         arcann_logger.info(
             f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
         )

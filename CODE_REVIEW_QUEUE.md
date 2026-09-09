@@ -14,6 +14,48 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-09 — CentroidMACE training folded into the `training` step
+
+The MACE branches of `training` gain a parallel "centroid" arm so the
+electron-position model is produced in the ArcaNN work dir every cycle
+(was a separate manual chain + hand copy). Mirrored in the
+hydrated_electron repo's `CODE_REVIEW_QUEUE.md` (which lists the vendored
+`erb_user_files/` scripts + the new `job_mace_centroid_gpu_login1.sh`).
+
+- [ ] `arcann_training/training/prepare.py` — `_prepare_mace`: (a) build
+  `<iter>-training/split_map.json` `{"<sys>_<iter>_<frame:05d>":
+  "train"|"valid"}` for new-iteration configs via a stable per-key sha1
+  hash (valid_frac 0.1); pass `--split-file` to the force converter; (b)
+  new centroid arm: `to_extxyz_centroid.py` seed mode over init_he* then
+  one append per 192-atom `data/<sys>_<iter>/` (joined to
+  `control/centroid_labels.csv` on `config_ids.txt`, split by the map);
+  stage `job_mace_centroid_<arch>_<machine>.sh` into
+  `<iter>-training/centroid/` (`_R_CENTROID_NAME_` = `centroid_<iter>`,
+  `_R_CENTROID_INIT_FROM_` = prev `NNP/centroid_<prev>.model` or empty,
+  `_R_CENTROID_NNP_DIR_`); (c) `training_json` gains
+  `is_centroid_launched` / `is_centroid_checked`. New imports: `hashlib`,
+  `json`.
+- [ ] `arcann_training/training/launch.py` — MACE branch also `sbatch`es
+  `<iter>-training/centroid/job_mace_centroid_*.sh` and sets
+  `is_centroid_launched`; force `is_launched` gate unchanged.
+- [ ] `arcann_training/training/check.py` — MACE branch also requires
+  `centroid/centroid_<iter>.model` + a `"best valid RMSE:"` line in
+  `centroid/training.log`; sets `is_centroid_checked`; `is_checked` now
+  gated on `force_done and centroid_done`.
+- [ ] `arcann_training/training/check_freeze.py` — MACE branch also
+  requires `NNP/centroid_<iter>.model` before `is_frozen`
+  (`force_frozen and centroid_ok`); success/failure log lines updated to
+  match.
+- [ ] `arcann_training/labeling/extract.py` — new MACE branch after the
+  non-disturbed extraction: write `data/<sys>_<iter>/config_ids.txt`
+  (not-skipped `NNNNN` in frame order) and run
+  `centroid_label_from_cube.py --labeling-root <iter>-labeling/<sys> --out
+  control/centroid_labels.csv` (interpreter = `main_json["mace_env"]`;
+  logs an error but does not abort on nonzero). New import: `subprocess`.
+Commit: <fill after commit>
+
+---
+
 ## 2026-09-09 — MACE train job: --restart_latest for checkpoint resume
 
 First-cycle committee trainings hit the `sixhour` 6 h wall at epoch ~288/400.

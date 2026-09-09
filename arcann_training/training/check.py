@@ -94,8 +94,29 @@ def main(
                 arcann_logger.critical(f"MACE Train - '{nnp}' not finished/failed.")
             del local_path, model_file, log_file, log_done
         del nnp
+        force_done = completed_count == main_json["nnp_count"]
 
-        if completed_count == main_json["nnp_count"]:
+        # Centroid (electron-position) model: training/prepare.py staged
+        # <iter>-training/centroid/ and training/launch.py sbatched its job.
+        # Done = centroid_<iter>.model written + train_centroid.py's final
+        # "best valid RMSE:" line in the log.
+        centroid_dir = current_path / "centroid"
+        centroid_model = centroid_dir / f"centroid_{padded_curr_iter}.model"
+        centroid_log = centroid_dir / "training.log"
+        centroid_done = (
+            centroid_model.is_file()
+            and centroid_log.is_file()
+            and any(
+                line.strip().startswith("best valid RMSE:")
+                for line in textfile_to_string_list(centroid_log)[-20:]
+            )
+        )
+        if centroid_done:
+            training_json["is_centroid_checked"] = True
+        else:
+            arcann_logger.critical(f"MACE Centroid Train - not finished/failed.")
+
+        if force_done and centroid_done:
             training_json["is_checked"] = True
 
         write_json_file(
@@ -105,7 +126,7 @@ def main(
         )
 
         arcann_logger.info(f"-" * 88)
-        if completed_count == main_json["nnp_count"]:
+        if force_done and centroid_done:
             arcann_logger.info(
                 f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
             )

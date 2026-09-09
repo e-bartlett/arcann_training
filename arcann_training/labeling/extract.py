@@ -11,6 +11,7 @@ Last modified: 2024/08/28
 
 # Standard library modules
 import logging
+import subprocess
 import sys
 from pathlib import Path
 import importlib
@@ -493,6 +494,47 @@ def main(
         del is_periodic
 
         arcann_logger.debug("Extraction done.")
+
+        # MACE tandem: the per-iteration CentroidMACE retrain needs (a) the
+        # not-skipped config ids in frame order, so to_extxyz_centroid.py can
+        # align data/<sys>_<iter>/ frames to labels + the shared split map,
+        # and (b) the spin-density-centroid label for each, from the stage-2
+        # SPIN_DENSITY cubes (centroid_label_from_cube.py -> the accumulating
+        # control/centroid_labels.csv). training/prepare.py's MACE branch
+        # consumes both.
+        if main_json.get("mlip_engine", "deepmd") == "mace":
+            config_ids = [
+                f"{s:05d}"
+                for s in range(system_candidates_count)
+                if not (system_path / f"{s:05d}" / "skip").is_file()
+            ]
+            string_list_to_textfile(
+                data_path / "config_ids.txt",
+                [f"{cid}\n" for cid in config_ids],
+            )
+
+            mace_env = main_json.get("mace_env", "")
+            label_py = f"{mace_env}/bin/python" if mace_env else "python"
+            label_script = training_path / "user_files" / "centroid_label_from_cube.py"
+            centroid_csv = control_path / "centroid_labels.csv"
+            if label_script.is_file():
+                rc = subprocess.run(
+                    [
+                        label_py, str(label_script),
+                        "--labeling-root", str(system_path),
+                        "--out", str(centroid_csv),
+                    ]
+                ).returncode
+                if rc != 0:
+                    arcann_logger.error(
+                        f"centroid_label_from_cube.py returned {rc} -- some SPIN_DENSITY "
+                        f"cubes may be missing. Check {centroid_csv} before 'training prepare'."
+                    )
+            else:
+                arcann_logger.error(
+                    f"{label_script} missing (add centroid_label_from_cube.py + "
+                    f"analyze_dataset.py to erb_user_files/). Skipping centroid labels."
+                )
 
         system_disturbed_candidates_count = labeling_json["systems_auto"][system_auto][
             "disturbed_candidates_count"
