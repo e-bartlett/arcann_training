@@ -29,7 +29,7 @@ log y-axis plus the learning-rate schedule on a twin axis, so a
 
 Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`.
 
-Commit: 4b62da7
+Commit: e7c5455
 
 ## 2026-09-09 — CentroidMACE training folded into the `training` step
 
