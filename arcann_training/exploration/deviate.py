@@ -285,10 +285,14 @@ def main(
                         model_deviation_raw = np.genfromtxt(
                             str(local_path / model_deviation_filename)
                         )
-                        if main_json.get("mlip_engine", "deepmd") == "mace":
-                            # he_mace_md.py writes one clean model_devi row per
-                            # PRINT_FREQ step (no pair_style deepmd double-write
-                            # of step 0), so the rows are used as-is.
+                        if main_json.get("mlip_engine", "deepmd") in ("mace", "deepmd"):
+                            # Both tandem drivers (he_mace_md.py / he_deepmd_md.py)
+                            # write one clean model_devi row per PRINT_FREQ step
+                            # from the Python loop -- no pair_style deepmd
+                            # out_file double-write of step 0 -- so the rows are
+                            # used as-is. (This fork drives every LAMMPS
+                            # exploration from a *_mace_lammps.py wrapper, so
+                            # there is no bare pair_style deepmd path left.)
                             model_deviation = model_deviation_raw
                         else:
                             #EB take every other value from model deviation, after first two lines

@@ -14,6 +14,35 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-10 — exploration: centroid gate + deepmd clean-devi branch
+
+Supports the `deepmd_tandem` hybrid exploration driver (hydrated_electron
+repo, `dataset_prep/mace_electron/he_deepmd_md.py`): `pair_style deepmd`
+water forces + frozen e3nn CentroidMACE electron, driven one LAMMPS step at
+a time from a `*_mace_lammps.py` wrapper like the MACE path.
+
+- [ ] `arcann_training/exploration/prepare.py` — the `_R_CENTROID_MODEL_`
+  symlink + slot fill in the LAMMPS branch is now gated on
+  `NNP/centroid_<prev_iter>.model` existing (`centroid_apath.is_file()`),
+  not on `main_json["mlip_engine"] == "mace"`. The frozen centroid model is
+  orthogonal to the force engine — both `he_mace_md.py` and
+  `he_deepmd_md.py` consume it. A run whose driver template has no
+  `_R_CENTROID_MODEL_` slot and no deployed centroid model is unaffected.
+- [ ] `arcann_training/exploration/deviate.py` — the clean-format model_devi
+  branch (`model_deviation = model_deviation_raw`, no `raw[3::2]`
+  decimation) is now taken for `mlip_engine in ("mace", "deepmd")`. This
+  fork drives every LAMMPS exploration from a Python `*_mace_lammps.py`
+  wrapper (`prepare.py` hard-codes the suffix), so both engines write one
+  clean row per print step and there is no bare `pair_style deepmd
+  out_file` step-0 double-write left to decimate.
+
+Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`
+(2026-09-10 hybrid-driver entry).
+
+Commit:
+
+---
+
 ## 2026-09-09 — training check: match MACE's prefixed "Done" log line
 
 `training check`'s MACE branch decided a force run had finished by testing

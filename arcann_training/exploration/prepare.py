@@ -907,16 +907,18 @@ def main(
                         f"{padded_prev_iter}"
                     )
 
-                    # MACE tandem: the frozen centroid model the driver uses to
+                    # Tandem: the frozen centroid model the driver uses to
                     # reposition the electron dummy atom every MD step. Symlinked
                     # into local_path (basename in the slot) so the explore job
                     # can realpath+link it into its scratch workdir, exactly like
-                    # the committee models from create_models_list().
-                    if main_json.get("mlip_engine", "deepmd") == "mace":
-                        centroid_model_fn = f"centroid_{padded_prev_iter}.model"
-                        centroid_apath = (
-                            training_path / "NNP" / centroid_model_fn
-                        ).resolve()
+                    # the committee models from create_models_list(). Gated on the
+                    # model existing, not on the force engine -- both the mace and
+                    # deepmd tandem paths (he_mace_md.py / he_deepmd_md.py) use it.
+                    centroid_model_fn = f"centroid_{padded_prev_iter}.model"
+                    centroid_apath = (
+                        training_path / "NNP" / centroid_model_fn
+                    ).resolve()
+                    if centroid_apath.is_file():
                         subprocess.call(
                             ["ln", "-nsf", str(centroid_apath), str(local_path)]
                         )
