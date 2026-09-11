@@ -26,7 +26,7 @@ Mirrors the same-titled entry in the hydrated_electron repo's
   `plot_deepmd` split the same way from lcurve.out's `rmse_{e,f}_{trn,val}`
   columns.
 
-Commit: <pending>
+Commit: 4890409
 
 ## 2026-09-10 — exploration: centroid gate + deepmd clean-devi branch
 
