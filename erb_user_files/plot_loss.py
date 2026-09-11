@@ -9,21 +9,33 @@ Handles both engines per NNP:
   * DeePMD  -> <nnp>/lcurve.out            (whitespace table, `dp train`)
   * MACE    -> <nnp>/results/*.txt         (JSON lines, mace_run_train)
 
-For MACE the panel shows the per-epoch validation E and F RMSE (eval rows
-only, converted to meV) on twin axes, plus a dashed line for the deployed
-SWA stage-two model's valid RMSE parsed from <nnp>/training.log -- the JSON
-eval rows only ever cover stage one, so the shipped model is 10-30x better
-on energy than the last plotted point.
+Each NNP gets two stacked panels (energy on top, forces on bottom), each
+showing train and valid together:
+  * DeePMD: continuous train/valid RMSE straight from lcurve.out's
+    rmse_{e,f}_{trn,val} columns (val columns are absent/skipped if no
+    validation set was configured for that run).
+  * MACE: mace_run_train only logs a per-epoch RMSE on the *valid* set
+    (the JSON "eval" rows, stage one only -- see mace_error_tables below
+    for why). Train-set RMSE only exists at two points: the final
+    "Error-table on TRAIN and VALID" mace_run_train prints in
+    <nnp>/training.log once for the stage-one model and once for the
+    deployed SWA stage-two model. Those two points are plotted as
+    train/valid marker pairs on top of the continuous valid curve, so the
+    stage-two jump (usually 10-30x better than anything in stage one) is
+    visible even though it's never part of the per-epoch curve.
 
 If the centroid (electron-position) model has run this iteration, its
 per-epoch history (centroid/centroid_<iter>_history.json, written by
-train_centroid.py) gets an extra panel on the right.
+train_centroid.py) gets an extra panel spanning both rows on the right --
+it already reports train_rmse/valid_rmse together, so it doesn't need the
+energy/force split.
 
 Writes loss.png next to this script.
 """
 
 import glob
 import json
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -40,55 +52,75 @@ def nnp_count():
     return sum(1 for p in Path(".").iterdir() if p.is_dir() and p.name.isdigit())
 
 
-def plot_deepmd(ax, lcurve):
+def plot_deepmd(ax_e, ax_f, lcurve):
     data = np.genfromtxt(lcurve, names=True)
-    for j, name in enumerate(data.dtype.names[1:-1]):  # skip step and lr
-        ax.plot(data["step"], data[name], label=name, color=COLORS[j % len(COLORS)])
-    ax.set_xlabel("step")
+    names = data.dtype.names
+    for ax, quantity in ((ax_e, "e"), (ax_f, "f")):
+        for suffix, label, color in (("trn", "train", "k"), ("val", "valid", "b")):
+            col = f"rmse_{quantity}_{suffix}"
+            if col in names:
+                ax.plot(data["step"], data[col], color=color, label=label)
+        ax.set_xscale("symlog")
+        ax.set_yscale("log")
+        ax.legend()
+    ax_e.set_ylabel("E RMSE")
+    ax_f.set_ylabel("F RMSE")
+    ax_f.set_xlabel("step")
 
 
-def mace_stage_two_valid(nnp_dir):
-    """Deployed-model valid (E meV/atom, F meV/A) from the last error table
-    in training.log, or None. That table is the SWA stage-two model; the
-    JSON eval rows only ever cover stage one."""
+def mace_error_tables(nnp_dir):
+    """[{epoch, train_e, valid_e, train_f, valid_f}, ...] -- one entry per
+    "Error-table on TRAIN and VALID" block in training.log (meV/atom,
+    meV/A, in the order mace_run_train prints them: stage-one final model,
+    then the deployed SWA stage-two model). Empty list if the run hasn't
+    reached that point yet."""
     log = Path(nnp_dir) / "training.log"
     if not log.is_file():
-        return None
-    valid_rows = [ln for ln in log.read_text().splitlines() if "| valid_Default |" in ln]
-    if not valid_rows:
-        return None
-    cells = [c.strip() for c in valid_rows[-1].strip().strip("|").split("|")]
-    return float(cells[1]), float(cells[2])
+        return []
+    lines = log.read_text().splitlines()
+    records = []
+    pending_epoch = None
+    for i, ln in enumerate(lines):
+        m = re.search(r"Loaded Stage \w+ model from epoch (\d+) for evaluation", ln)
+        if m:
+            pending_epoch = int(m.group(1))
+            continue
+        if pending_epoch is not None and "| train_Default |" in ln and i + 1 < len(lines):
+            train_cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+            valid_cells = [c.strip() for c in lines[i + 1].strip().strip("|").split("|")]
+            records.append({
+                "epoch": pending_epoch,
+                "train_e": float(train_cells[1]), "train_f": float(train_cells[2]),
+                "valid_e": float(valid_cells[1]), "valid_f": float(valid_cells[2]),
+            })
+            pending_epoch = None
+    return records
 
 
-def plot_mace(ax, results_txt, nnp_dir):
+def plot_mace(ax_e, ax_f, results_txt, nnp_dir):
     rows = [json.loads(line) for line in Path(results_txt).read_text().splitlines() if line.strip()]
     evals = [r for r in rows if r.get("mode") == "eval" and r.get("epoch") is not None]
-    if not evals:
-        return
-    epochs = [r["epoch"] for r in evals]
-    line_e, = ax.plot(epochs, [r["rmse_e_per_atom"] * 1000 for r in evals],
-                      color=COLORS[0], label="E RMSE")
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("E RMSE (meV/atom)", color=COLORS[0])
-    ax.set_yscale("log")
-    ax.tick_params(axis="y", labelcolor=COLORS[0])
+    if evals:
+        epochs = [r["epoch"] for r in evals]
+        ax_e.plot(epochs, [r["rmse_e_per_atom"] * 1000 for r in evals], color="r", label="valid (stage one)")
+        ax_f.plot(epochs, [r["rmse_f"] * 1000 for r in evals], color="r", label="valid (stage one)")
 
-    ax_f = ax.twinx()
-    line_f, = ax_f.plot(epochs, [r["rmse_f"] * 1000 for r in evals],
-                        color=COLORS[1], label="F RMSE")
-    ax_f.set_ylabel(r"F RMSE (meV/$\AA$)", color=COLORS[1])
+    tables = mace_error_tables(nnp_dir)
+    if tables:
+        t_epochs = [t["epoch"] for t in tables]
+        ax_e.plot(t_epochs, [t["train_e"] for t in tables], "o--", color="k", label="train (final)")
+        ax_e.plot(t_epochs, [t["valid_e"] for t in tables], "o--", color="b", label="valid (final)")
+        ax_f.plot(t_epochs, [t["train_f"] for t in tables], "o--", color="k", label="train (final)")
+        ax_f.plot(t_epochs, [t["valid_f"] for t in tables], "o--", color="b", label="valid (final)")
+
+    ax_e.set_ylabel("E RMSE (meV/atom)")
+    ax_e.set_yscale("log")
+    ax_e.legend(fontsize=7)
+
+    ax_f.set_ylabel(r"F RMSE (meV/$\AA$)")
     ax_f.set_yscale("log")
-    ax_f.tick_params(axis="y", labelcolor=COLORS[1])
-
-    handles = [line_e, line_f]
-    final = mace_stage_two_valid(nnp_dir)
-    if final:
-        handles.append(ax.axhline(final[0], color=COLORS[0], linestyle="--", linewidth=0.8,
-                                  label=f"stage-two valid E {final[0]:.1f}"))
-        handles.append(ax_f.axhline(final[1], color=COLORS[1], linestyle="--", linewidth=0.8,
-                                    label=f"stage-two valid F {final[1]:.1f}"))
-    ax.legend(handles=handles, loc="upper right", fontsize=7)
+    ax_f.set_xlabel("epoch")
+    ax_f.legend(fontsize=7)
 
 
 def plot_centroid(ax, history_json):
@@ -111,27 +143,28 @@ def main():
     n = nnp_count()
     centroid_hist = sorted(glob.glob("centroid/centroid_*_history.json"))
     ncols = n + (1 if centroid_hist else 0)
-    fig, axes = plt.subplots(1, ncols, figsize=(3.8 * ncols, 4), squeeze=False)
+    fig = plt.figure(figsize=(3.8 * ncols, 8))
+    gs = fig.add_gridspec(2, ncols)
+
     for i in range(1, n + 1):
-        ax = axes[0][i - 1]
+        ax_e = fig.add_subplot(gs[0, i - 1])
+        ax_f = fig.add_subplot(gs[1, i - 1], sharex=ax_e)
         lcurve = Path(f"{i}/lcurve.out")
         mace_results = sorted(glob.glob(f"{i}/results/*.txt"))
         if lcurve.is_file():
-            plot_deepmd(ax, lcurve)
-            ax.set_ylabel("loss / RMSE")
-            ax.set_xscale("symlog")
-            ax.set_yscale("log")
-            ax.legend()
+            plot_deepmd(ax_e, ax_f, lcurve)
         elif mace_results:
-            plot_mace(ax, mace_results[0], f"{i}")
+            plot_mace(ax_e, ax_f, mace_results[0], f"{i}")
         else:
-            ax.set_title(f"NNP {i}: no loss file")
+            ax_e.set_title(f"NNP {i}: no loss file")
+            ax_f.set_visible(False)
             continue
-        ax.set_title(f"NNP {i}")
-        ax.grid()
+        ax_e.set_title(f"NNP {i}")
+        ax_e.grid()
+        ax_f.grid()
 
     if centroid_hist:
-        ax = axes[0][n]
+        ax = fig.add_subplot(gs[:, n])
         plot_centroid(ax, centroid_hist[0])
         ax.set_title("centroid model")
         ax.set_ylabel(r"RMSE ($\AA$)")

@@ -14,6 +14,20 @@ hydrated_electron repo ("Review-queue staging" section).
 
 ---
 
+## 2026-09-11 — plot_loss.py: split each panel into train/valid × energy/force
+
+Mirrors the same-titled entry in the hydrated_electron repo's
+`CODE_REVIEW_QUEUE.md`.
+
+- [ ] `erb_user_files/plot_loss.py` — each NNP gets two stacked panels
+  (energy, forces) instead of one twin-axis panel; new
+  `mace_error_tables(nnp_dir)` supplies the sparse train/valid marker pairs
+  since mace_run_train only logs continuous per-epoch RMSE for valid.
+  `plot_deepmd` split the same way from lcurve.out's `rmse_{e,f}_{trn,val}`
+  columns.
+
+Commit: <pending>
+
 ## 2026-09-10 — exploration: centroid gate + deepmd clean-devi branch
 
 Supports the `deepmd_tandem` hybrid exploration driver (hydrated_electron
