@@ -39,7 +39,7 @@ a time from a `*_mace_lammps.py` wrapper like the MACE path.
 Mirrored in the hydrated_electron repo's `CODE_REVIEW_QUEUE.md`
 (2026-09-10 hybrid-driver entry).
 
-Commit:
+Commit: fd28528
 
 ---
 
