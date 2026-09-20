@@ -98,25 +98,30 @@ def main(
         del nnp
         force_done = completed_count == main_json["nnp_count"]
 
-        # Centroid (electron-position) model: training/prepare.py staged
-        # <iter>-training/centroid/ and training/launch.py sbatched its job.
-        # Done = centroid_<iter>.model written + train_centroid.py's final
-        # "best valid RMSE:" line in the log.
-        centroid_dir = current_path / "centroid"
-        centroid_model = centroid_dir / f"centroid_{padded_curr_iter}.model"
-        centroid_log = centroid_dir / "training.log"
-        centroid_done = (
-            centroid_model.is_file()
-            and centroid_log.is_file()
-            and any(
-                line.strip().startswith("best valid RMSE:")
-                for line in textfile_to_string_list(centroid_log)[-20:]
+        # Centroid (electron-position) model: opt-in via
+        # main_json["train_centroid_model"] (see training/prepare.py). When
+        # off, there's nothing to wait on, so it's trivially "done".
+        centroid_done = True
+        if main_json.get("train_centroid_model", False):
+            # training/prepare.py staged <iter>-training/centroid/ and
+            # training/launch.py sbatched its job. Done = centroid_<iter>.model
+            # written + train_centroid.py's final "best valid RMSE:" line in
+            # the log.
+            centroid_dir = current_path / "centroid"
+            centroid_model = centroid_dir / f"centroid_{padded_curr_iter}.model"
+            centroid_log = centroid_dir / "training.log"
+            centroid_done = (
+                centroid_model.is_file()
+                and centroid_log.is_file()
+                and any(
+                    line.strip().startswith("best valid RMSE:")
+                    for line in textfile_to_string_list(centroid_log)[-20:]
+                )
             )
-        )
-        if centroid_done:
-            training_json["is_centroid_checked"] = True
-        else:
-            arcann_logger.critical(f"MACE Centroid Train - not finished/failed.")
+            if centroid_done:
+                training_json["is_centroid_checked"] = True
+            else:
+                arcann_logger.critical(f"MACE Centroid Train - not finished/failed.")
 
         if force_done and centroid_done:
             training_json["is_checked"] = True

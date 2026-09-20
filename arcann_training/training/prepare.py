@@ -87,6 +87,11 @@ def _prepare_mace(
     """
     user_files_path = training_path / "user_files"
 
+    # Both opt-in and off by default: only this project's electron-augmented
+    # systems need the elec-candidate sidecar / the companion centroid model.
+    has_electron_pseudo_particle = main_json.get("has_electron_pseudo_particle", False)
+    train_centroid_model = main_json.get("train_centroid_model", False)
+
     # generate_training_json type-checks deepmd_model_version against the
     # numeric default, so drop any string value before the merge, then mark.
     current_input_json.pop("deepmd_model_version", None)
@@ -139,21 +144,30 @@ def _prepare_mace(
             if not data_dir.is_dir():
                 continue
             trained_count += np.load(data_dir / "set.000" / "box.npy").shape[0]
-            n_particles = len(
-                np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
-            )
-            # 192-atom ArcaNN labeling output -> electron from that
-            # iteration's exploration candidates; 193-atom -> X already in.
-            elec_xyz = (
-                training_path
-                / f"{padded_iteration}-exploration"
-                / f"{system_auto}"
-                / f"elec_candidates_{padded_iteration}_{system_auto}.xyz"
-            )
-            convert_dirs.append((data_dir, None if n_particles > 192 else elec_xyz))
-    # NOTE: -disturbed / adhoc / extra_ datasets are not handled here (the
-    # hydrated-electron loop uses systems_auto: ["he"] only). Add them the
-    # same way if a future config needs them.
+            elec_xyz = None
+            if has_electron_pseudo_particle:
+                # Electron-augmented systems (opt-in): the labeling output
+                # for a not-yet-augmented dataset has exactly
+                # electron_pseudo_particle_atom_count atoms, and the electron
+                # pseudo-particle position instead lives in that iteration's
+                # exploration-candidate sidecar; a dataset with more atoms
+                # than that already carries the electron as a regular atom
+                # type, so no sidecar is needed.
+                base_atom_count = main_json["electron_pseudo_particle_atom_count"]
+                n_particles = len(
+                    np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
+                )
+                if n_particles <= base_atom_count:
+                    elec_xyz = (
+                        training_path
+                        / f"{padded_iteration}-exploration"
+                        / f"{system_auto}"
+                        / f"elec_candidates_{padded_iteration}_{system_auto}.xyz"
+                    )
+            convert_dirs.append((data_dir, elec_xyz))
+    # NOTE: -disturbed / adhoc / extra_ datasets are not handled here (only
+    # relevant when systems_auto has more than one entry). Add them the same
+    # way if a future config needs them.
 
     if not convert_dirs:
         arcann_logger.error(f"No data dirs found under {data_path}. Aborting...")
@@ -228,7 +242,7 @@ def _prepare_mace(
     converter = user_files_path / "deepmd_npy_to_extxyz.py"
     if not converter.is_file():
         arcann_logger.error(
-            f"{converter} missing (add it to erb_user_files/). Aborting..."
+            f"{converter} missing (add it to user_files/). Aborting..."
         )
         return 1
     converter_py = f"{mace_env}/bin/python" if mace_env else "python"
@@ -298,102 +312,108 @@ def _prepare_mace(
                 ["rsync", "-a", str(current_path / xyz), str(local_path / xyz)]
             )
 
-    # --- centroid (electron-position) model: same growing label set ------
-    # <iter>-training/centroid/{train,valid,test}.xyz via to_extxyz_centroid.py:
-    # seed mode over init_he* (REF_centroid label + its own split_id split,
-    # test grain frozen here), then one append per new 192-atom data/<sys>_
-    # <iter>/ dir joined to control/centroid_labels.csv on the config id and
-    # split by the shared split_map. Then stage the centroid training job;
-    # training/launch.py sbatches it alongside the force jobs.
-    centroid_conv = user_files_path / "to_extxyz_centroid.py"
-    centroid_job_name = f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
-    if not centroid_conv.is_file():
-        arcann_logger.error(f"{centroid_conv} missing (add it to erb_user_files/). Aborting...")
-        return 1
-    if not (user_files_path / centroid_job_name).is_file():
-        arcann_logger.error(f"No {centroid_job_name} in {user_files_path}. Aborting...")
-        return 1
-
-    centroid_dir = current_path / "centroid"
-    centroid_dir.mkdir(exist_ok=True)
-    (training_path / "NNP").mkdir(parents=True, exist_ok=True)
-
-    for name in initial_datasets_info:
-        seed_dir = data_path / name
-        if not seed_dir.is_dir():
-            continue
-        seed_cmd = [
-            converter_py, str(centroid_conv),
-            "--deepmd-dir", str(seed_dir),
-            "--out", str(centroid_dir),
-        ]
-        arcann_logger.debug(f"centroid seed cmd: {' '.join(seed_cmd)}")
-        if subprocess.run(seed_cmd).returncode != 0:
-            arcann_logger.error(f"to_extxyz_centroid.py (seed) failed. Aborting...")
+    # --- centroid (electron-position) model: opt-in, off by default -------
+    # Some projects also train a companion "centroid" model that regresses
+    # an electron/particle centroid position, sharing the same growing label
+    # set: <iter>-training/centroid/{train,valid,test}.xyz via
+    # to_extxyz_centroid.py (seed mode over the initial datasets, then one
+    # append per new not-yet-augmented data/<sys>_<iter>/ dir joined to
+    # control/centroid_labels.csv on the config id and split by the shared
+    # split_map), then the centroid training job is staged for
+    # training/launch.py to sbatch alongside the force jobs. Turned on via
+    # main_json["train_centroid_model"]; requires
+    # has_electron_pseudo_particle too.
+    if train_centroid_model:
+        centroid_conv = user_files_path / "to_extxyz_centroid.py"
+        centroid_job_name = f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
+        if not centroid_conv.is_file():
+            arcann_logger.error(f"{centroid_conv} missing (add it to user_files/). Aborting...")
+            return 1
+        if not (user_files_path / centroid_job_name).is_file():
+            arcann_logger.error(f"No {centroid_job_name} in {user_files_path}. Aborting...")
             return 1
 
-    centroid_csv = control_path / "centroid_labels.csv"
-    for iteration in range(1, curr_iter + 1):
-        padded_iteration = str(iteration).zfill(3)
-        for system_auto in main_json["systems_auto"]:
-            data_dir = data_path / f"{system_auto}_{padded_iteration}"
-            if not data_dir.is_dir():
+        centroid_dir = current_path / "centroid"
+        centroid_dir.mkdir(exist_ok=True)
+        (training_path / "NNP").mkdir(parents=True, exist_ok=True)
+
+        for name in initial_datasets_info:
+            seed_dir = data_path / name
+            if not seed_dir.is_dir():
                 continue
-            n_particles = len(
-                np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
-            )
-            if n_particles > 192:
-                continue  # 193-atom dir already carries X; no centroid label track
-            ids_file = data_dir / "config_ids.txt"
-            if not centroid_csv.is_file() or not ids_file.is_file():
-                arcann_logger.error(
-                    f"centroid append needs {centroid_csv} and {ids_file} -- "
-                    f"labeling/extract.py's MACE branch writes both. Aborting..."
-                )
-                return 1
-            append_cmd = [
+            seed_cmd = [
                 converter_py, str(centroid_conv),
+                "--deepmd-dir", str(seed_dir),
                 "--out", str(centroid_dir),
-                "--extra-deepmd-dir", str(data_dir),
-                "--config-ids-file", str(ids_file),
-                "--centroid-csv", str(centroid_csv),
-                "--split-file", str(split_map_path),
             ]
-            arcann_logger.debug(f"centroid append cmd: {' '.join(append_cmd)}")
-            if subprocess.run(append_cmd).returncode != 0:
-                arcann_logger.error(f"to_extxyz_centroid.py (append) failed. Aborting...")
+            arcann_logger.debug(f"centroid seed cmd: {' '.join(seed_cmd)}")
+            if subprocess.run(seed_cmd).returncode != 0:
+                arcann_logger.error(f"to_extxyz_centroid.py (seed) failed. Aborting...")
                 return 1
 
-    if not (centroid_dir / "train.xyz").is_file():
-        arcann_logger.error(f"no {centroid_dir / 'train.xyz'} produced. Aborting...")
-        return 1
+        centroid_csv = control_path / "centroid_labels.csv"
+        base_atom_count = main_json.get("electron_pseudo_particle_atom_count")
+        for iteration in range(1, curr_iter + 1):
+            padded_iteration = str(iteration).zfill(3)
+            for system_auto in main_json["systems_auto"]:
+                data_dir = data_path / f"{system_auto}_{padded_iteration}"
+                if not data_dir.is_dir():
+                    continue
+                n_particles = len(
+                    np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
+                )
+                if base_atom_count is not None and n_particles > base_atom_count:
+                    continue  # already carries the electron; no centroid label track
+                ids_file = data_dir / "config_ids.txt"
+                if not centroid_csv.is_file() or not ids_file.is_file():
+                    arcann_logger.error(
+                        f"centroid append needs {centroid_csv} and {ids_file} -- "
+                        f"labeling/extract.py's MACE branch writes both. Aborting..."
+                    )
+                    return 1
+                append_cmd = [
+                    converter_py, str(centroid_conv),
+                    "--out", str(centroid_dir),
+                    "--extra-deepmd-dir", str(data_dir),
+                    "--config-ids-file", str(ids_file),
+                    "--centroid-csv", str(centroid_csv),
+                    "--split-file", str(split_map_path),
+                ]
+                arcann_logger.debug(f"centroid append cmd: {' '.join(append_cmd)}")
+                if subprocess.run(append_cmd).returncode != 0:
+                    arcann_logger.error(f"to_extxyz_centroid.py (append) failed. Aborting...")
+                    return 1
 
-    centroid_job = replace_in_slurm_file_general(
-        textfile_to_string_list(user_files_path / centroid_job_name),
-        machine_spec,
-        walltime_approx_s,
-        machine_walltime_format,
-        current_input_json["job_email"],
-    )
-    centroid_job = replace_substring_in_string_list(
-        centroid_job, "_R_CENTROID_NAME_", f"centroid_{padded_curr_iter}"
-    )
-    if curr_iter > 0:
-        prev_centroid = (
-            training_path / "NNP" / f"centroid_{str(curr_iter - 1).zfill(3)}.model"
+        if not (centroid_dir / "train.xyz").is_file():
+            arcann_logger.error(f"no {centroid_dir / 'train.xyz'} produced. Aborting...")
+            return 1
+
+        centroid_job = replace_in_slurm_file_general(
+            textfile_to_string_list(user_files_path / centroid_job_name),
+            machine_spec,
+            walltime_approx_s,
+            machine_walltime_format,
+            current_input_json["job_email"],
         )
-        centroid_init_from = str(prev_centroid.resolve())
-    else:
-        centroid_init_from = ""
-    centroid_job = replace_substring_in_string_list(
-        centroid_job, "_R_CENTROID_INIT_FROM_", centroid_init_from
-    )
-    centroid_job = replace_substring_in_string_list(
-        centroid_job, "_R_CENTROID_NNP_DIR_", str((training_path / "NNP").resolve())
-    )
-    string_list_to_textfile(
-        centroid_dir / centroid_job_name, centroid_job, read_only=True
-    )
+        centroid_job = replace_substring_in_string_list(
+            centroid_job, "_R_CENTROID_NAME_", f"centroid_{padded_curr_iter}"
+        )
+        if curr_iter > 0:
+            prev_centroid = (
+                training_path / "NNP" / f"centroid_{str(curr_iter - 1).zfill(3)}.model"
+            )
+            centroid_init_from = str(prev_centroid.resolve())
+        else:
+            centroid_init_from = ""
+        centroid_job = replace_substring_in_string_list(
+            centroid_job, "_R_CENTROID_INIT_FROM_", centroid_init_from
+        )
+        centroid_job = replace_substring_in_string_list(
+            centroid_job, "_R_CENTROID_NNP_DIR_", str((training_path / "NNP").resolve())
+        )
+        string_list_to_textfile(
+            centroid_dir / centroid_job_name, centroid_job, read_only=True
+        )
 
     write_json_file(main_json, (control_path / "config.json"), read_only=True)
     write_json_file(

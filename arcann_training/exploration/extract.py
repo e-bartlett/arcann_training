@@ -110,6 +110,11 @@ def main(
         (control_path / f"exploration_{padded_curr_iter}.json")
     )
 
+    # Electron-augmented systems (opt-in, off by default): split a trailing
+    # pseudo-particle out of each candidate into its own elec_*.xyz sidecar,
+    # re-attached later by training/prepare.py.
+    has_electron_pseudo_particle = main_json.get("has_electron_pseudo_particle", False)
+
     # Load the previous exploration JSON and training JSON
     if curr_iter > 0:
         prev_iter = curr_iter - 1
@@ -441,12 +446,16 @@ def main(
                             "0.00000000              # XX",
                             "1.00000000              # XX",
                         )
-                        #EB modify to change electron mass
-                        lmp_file = replace_substring_in_string_list(
-                            lmp_file,
-                            "3   6.94000000              # Li",
-                            "3   0.00054858              # X",
-                        )
+                        if has_electron_pseudo_particle:
+                            # This project's convention: atomsk emits the
+                            # electron pseudo-particle typed as Li (atom
+                            # type 3); patch its mass to the electron mass
+                            # (amu) so LAMMPS doesn't integrate it as Li.
+                            lmp_file = replace_substring_in_string_list(
+                                lmp_file,
+                                "3   6.94000000              # Li",
+                                "3   0.00054858              # X",
+                            )
                         string_list_to_textfile(
                             starting_structures_path
                             / f"{min_file_name}_{padded_min_index}.lmp",
@@ -691,15 +700,23 @@ def main(
                                 extended_xyz_header = f'Lattice="{cella[index_xyz]} 0.0000 0.0000 0.0000 {cellb[index_xyz]} 0.0000 0.0000 0.0000 {cellc[index_xyz]}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
                             else:
                                 extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
-                            #EB modified to output only water and only elec files
-                            water_xyz_string = (
-                                ["192"] + [extended_xyz_header] + xyz_string[2:-1]
-                            )
-                            elec_string = (["1"] + [extended_xyz_header] + [xyz_string[-1]])
-                            path = Path(xyz_files)
-                            elec_path = path.with_name("elec_" + path.name)
-                            string_list_to_textfile(xyz_files, water_xyz_string)
-                            string_list_to_textfile(elec_path, elec_string)
+                            if has_electron_pseudo_particle:
+                                # Electron-augmented systems (opt-in): split
+                                # the trailing pseudo-particle line into its
+                                # own elec_*.xyz sidecar (re-attached later
+                                # by training/prepare.py) so the main
+                                # candidate file keeps just the physical
+                                # atoms. Atom count is derived from the file,
+                                # not assumed.
+                                remaining_count = str(int(xyz_string[0]) - 1)
+                                water_xyz_string = (
+                                    [remaining_count] + [extended_xyz_header] + xyz_string[2:-1]
+                                )
+                                elec_string = (["1"] + [extended_xyz_header] + [xyz_string[-1]])
+                                path = Path(xyz_files)
+                                elec_path = path.with_name("elec_" + path.name)
+                                string_list_to_textfile(xyz_files, water_xyz_string)
+                                string_list_to_textfile(elec_path, elec_string)
 
                             del xyz_string, extended_xyz_header, index_xyz
                         del xyz_files
@@ -722,18 +739,19 @@ def main(
                                 for _ in candidate_indexes_padded
                             ]
                         )
-                        elec_files.extend(
-                            [
-                                str(
-                                    Path(".")
-                                    / str(system_auto)
-                                    / str(it_nnp)
-                                    / str(it_number).zfill(5)
-                                    / ("elec_candidates_" + _ + ".xyz")
-                                )
-                                for _ in candidate_indexes_padded
-                            ]
-                        )
+                        if has_electron_pseudo_particle:
+                            elec_files.extend(
+                                [
+                                    str(
+                                        Path(".")
+                                        / str(system_auto)
+                                        / str(it_nnp)
+                                        / str(it_number).zfill(5)
+                                        / ("elec_candidates_" + _ + ".xyz")
+                                    )
+                                    for _ in candidate_indexes_padded
+                                ]
+                            )
 
                         # If the a minium value was set by the user or previous, enable disturbed min structures
                         if disturbed_candidate_value != 0:

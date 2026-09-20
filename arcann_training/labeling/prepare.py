@@ -62,8 +62,8 @@ def main(
     current_path = Path(".").resolve()
     training_path = current_path.parent
 
-    #EB copy training_path/user_files/eb_labeling_codes/* current_path
-    for file in glob.glob(f"{training_path}/user_files/eb_labeling_codes/*"):
+    # Copy any project-specific labeling code drop-ins into the working dir.
+    for file in glob.glob(f"{training_path}/user_files/labeling_codes/*"):
         shutil.copy(file, current_path)
 
     # Log the step and phase of the program

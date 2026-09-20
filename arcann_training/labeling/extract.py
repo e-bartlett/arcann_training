@@ -495,14 +495,18 @@ def main(
 
         arcann_logger.debug("Extraction done.")
 
-        # MACE tandem: the per-iteration CentroidMACE retrain needs (a) the
-        # not-skipped config ids in frame order, so to_extxyz_centroid.py can
-        # align data/<sys>_<iter>/ frames to labels + the shared split map,
-        # and (b) the spin-density-centroid label for each, from the stage-2
+        # Centroid (electron-position) model: opt-in via
+        # main_json["train_centroid_model"] (see training/prepare.py). When
+        # on, the per-iteration centroid retrain needs (a) the not-skipped
+        # config ids in frame order, so to_extxyz_centroid.py can align
+        # data/<sys>_<iter>/ frames to labels + the shared split map, and (b)
+        # the spin-density-centroid label for each, from the stage-2
         # SPIN_DENSITY cubes (centroid_label_from_cube.py -> the accumulating
         # control/centroid_labels.csv). training/prepare.py's MACE branch
         # consumes both.
-        if main_json.get("mlip_engine", "deepmd") == "mace":
+        if main_json.get("mlip_engine", "deepmd") == "mace" and main_json.get(
+            "train_centroid_model", False
+        ):
             config_ids = [
                 f"{s:05d}"
                 for s in range(system_candidates_count)
@@ -533,7 +537,7 @@ def main(
             else:
                 arcann_logger.error(
                     f"{label_script} missing (add centroid_label_from_cube.py + "
-                    f"analyze_dataset.py to erb_user_files/). Skipping centroid labels."
+                    f"analyze_dataset.py to user_files/). Skipping centroid labels."
                 )
 
         system_disturbed_candidates_count = labeling_json["systems_auto"][system_auto][
