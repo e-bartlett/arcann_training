@@ -2,13 +2,26 @@ units metal
 boundary p p p
 atom_style atomic
 
+# keep the local atom order == read order for the whole run, so the Python
+# driver's index-based slicing (water = 0..191, electron = 192) and its
+# zero-copy `extract_atom("x")[192] = ...` electron move stay valid.
+atom_modify sort 0 0.0
+# pair_style mace's no_domain_decomposition branch resolves each ghost
+# atom back to its local index via atom->map() to compute the PBC shift
+# itself (see pair_mace.cpp). atom_style atomic defaults to map_style
+# MAP_NONE, so map() silently returns -1 and the pair style reads
+# atom->x[-1] -- a wild pointer read that segfaults in PairMACE::compute.
+atom_modify map array
+
 neighbor 2.0 bin
 neigh_modify every 1 delay 0 check no
 
 read_data _R_DATA_FILE_
 
-pair_style deepmd _R_MODEL_FILES_ out_freq _R_PRINT_FREQ_ out_file _R_DEVI_OUT_
-pair_coeff * *
+# pair_style mace / pair_coeff are issued by he_mace_md.py after lmp.file():
+# it picks committee model 0 to propagate and appends "O H X". Doing it here
+# would need a token like _R_MODEL_FILES_first_, and ArcaNN substitutes with
+# a plain str.replace that would mangle it.
 
 timestep _R_TIMESTEP_
 
@@ -21,7 +34,7 @@ thermo _R_PRINT_FREQ_
 group elec type 3
 group water type 1 2
 
-fix pl all plumed plumedfile plumed_he.dat outfile plumed.log #EB_plumed
+# electron (type 3) is never time-integrated: only `water` gets nve + thermostat.
 fix 1 water nve
 fix 2 water temp/csvr _R_TEMPERATURE_ _R_TEMPERATURE_ $(100.0*dt) _R_SEED_THER_
 fix 3 water momentum 1 linear 1 1 1

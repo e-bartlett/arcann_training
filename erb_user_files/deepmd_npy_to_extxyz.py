@@ -33,6 +33,7 @@ Energies go to ``info["REF_energy"]`` and forces to
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -161,12 +162,23 @@ def parse_args(argv=None):
         "--seed", type=int, default=0,
         help="RNG seed for the --valid-frac split (default: %(default)s).",
     )
+    parser.add_argument(
+        "--split-file", type=Path, default=None,
+        help="JSON {\"<dir>_<frameidx:05d>\": \"train\"|\"valid\"} for dirs "
+             "without split_id, shared with to_extxyz_centroid.py so a config "
+             "lands on the same train/valid side for the force and centroid "
+             "models. Overrides --valid-frac / --seed for those dirs.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     options = parse_args(argv)
     rng = np.random.default_rng(options.seed)
+    split_map = (
+        json.loads(options.split_file.read_text())
+        if options.split_file is not None else None
+    )
 
     elec_queue = list(options.elec_xyz)
     buckets = {name: [] for name in SPLIT_NAMES.values()}
@@ -191,7 +203,13 @@ def main(argv=None):
             else:
                 buckets[SPLIT_NAMES[split]].append(atoms)
 
-        if pending:
+        if pending and split_map is not None:
+            for atoms in pending:
+                key = atoms.info["config"]  # "<dir>_<frameidx:05d>"
+                if key not in split_map:
+                    sys.exit(f"error: {key} not in --split-file {options.split_file}")
+                buckets["valid" if split_map[key] == "valid" else "train"].append(atoms)
+        elif pending:
             idx = rng.permutation(len(pending))
             n_valid = max(1, round(len(pending) * options.valid_frac))
             valid_idx = set(idx[:n_valid].tolist())

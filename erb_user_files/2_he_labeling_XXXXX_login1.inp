@@ -90,6 +90,13 @@
         &END
       &END VDW_POTENTIAL
     &END XC
+
+  &PRINT
+    &E_DENSITY_CUBE ON
+      STRIDE 2 2 2
+      FILENAME 2
+    &END E_DENSITY_CUBE
+  &END PRINT
  &END DFT
 
 
