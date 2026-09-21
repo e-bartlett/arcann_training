@@ -87,10 +87,10 @@ def _prepare_mace(
     """
     user_files_path = training_path / "user_files"
 
-    # Both opt-in and off by default: only this project's electron-augmented
-    # systems need the elec-candidate sidecar / the companion centroid model.
-    has_electron_pseudo_particle = main_json.get("has_electron_pseudo_particle", False)
-    train_centroid_model = main_json.get("train_centroid_model", False)
+    # Opt-in, off by default: gates the elec-candidate sidecar AND the
+    # companion centroid model together -- only this project's
+    # electron-augmented systems need either.
+    hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
 
     # generate_training_json type-checks deepmd_model_version against the
     # numeric default, so drop any string value before the merge, then mark.
@@ -145,7 +145,7 @@ def _prepare_mace(
                 continue
             trained_count += np.load(data_dir / "set.000" / "box.npy").shape[0]
             elec_xyz = None
-            if has_electron_pseudo_particle:
+            if hydrated_electron_mode:
                 # Electron-augmented systems (opt-in): the labeling output
                 # for a not-yet-augmented dataset has exactly
                 # electron_pseudo_particle_atom_count atoms, and the electron
@@ -312,18 +312,16 @@ def _prepare_mace(
                 ["rsync", "-a", str(current_path / xyz), str(local_path / xyz)]
             )
 
-    # --- centroid (electron-position) model: opt-in, off by default -------
-    # Some projects also train a companion "centroid" model that regresses
-    # an electron/particle centroid position, sharing the same growing label
-    # set: <iter>-training/centroid/{train,valid,test}.xyz via
+    # --- centroid (electron-position) model: part of hydrated_electron_mode
+    # This project also trains a companion "centroid" model that regresses
+    # the electron's centroid position, sharing the same growing label set:
+    # <iter>-training/centroid/{train,valid,test}.xyz via
     # to_extxyz_centroid.py (seed mode over the initial datasets, then one
     # append per new not-yet-augmented data/<sys>_<iter>/ dir joined to
     # control/centroid_labels.csv on the config id and split by the shared
     # split_map), then the centroid training job is staged for
-    # training/launch.py to sbatch alongside the force jobs. Turned on via
-    # main_json["train_centroid_model"]; requires
-    # has_electron_pseudo_particle too.
-    if train_centroid_model:
+    # training/launch.py to sbatch alongside the force jobs.
+    if hydrated_electron_mode:
         centroid_conv = user_files_path / "to_extxyz_centroid.py"
         centroid_job_name = f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
         if not centroid_conv.is_file():

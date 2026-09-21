@@ -154,13 +154,12 @@ def main(
         del local_path, job_file_name
     del nnp
 
-    # Centroid (electron-position) model: opt-in via
-    # main_json["train_centroid_model"]. When on, also submit the companion
-    # centroid training job that training/prepare.py staged into
-    # <iter>-training/centroid/. It runs in parallel with the force jobs;
-    # `training check` waits on both.
+    # Centroid (electron-position) model: part of hydrated_electron_mode.
+    # When on, also submit the companion centroid training job that
+    # training/prepare.py staged into <iter>-training/centroid/. It runs in
+    # parallel with the force jobs; `training check` waits on both.
     if main_json.get("mlip_engine", "deepmd") == "mace" and main_json.get(
-        "train_centroid_model", False
+        "hydrated_electron_mode", False
     ):
         centroid_dir = current_path / "centroid"
         centroid_job_name = (

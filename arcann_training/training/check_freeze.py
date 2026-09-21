@@ -85,12 +85,12 @@ def main(
 
     force_frozen = completed_count == main_json["nnp_count"]
 
-    # Centroid (electron-position) model: opt-in via
-    # main_json["train_centroid_model"]. When on, training/launch.py rsynced
-    # the trained NNP/centroid_<iter>.model and exploration/prepare.py
-    # symlinks it as _R_CENTROID_MODEL_, so require it here too.
+    # Centroid (electron-position) model: part of hydrated_electron_mode.
+    # When on, training/launch.py rsynced the trained
+    # NNP/centroid_<iter>.model and exploration/prepare.py symlinks it as
+    # _R_CENTROID_MODEL_, so require it here too.
     centroid_ok = True
-    if is_mace and main_json.get("train_centroid_model", False):
+    if is_mace and main_json.get("hydrated_electron_mode", False):
         centroid_model = (
             training_path / "NNP" / f"centroid_{padded_curr_iter}.model"
         )

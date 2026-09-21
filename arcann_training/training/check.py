@@ -98,11 +98,11 @@ def main(
         del nnp
         force_done = completed_count == main_json["nnp_count"]
 
-        # Centroid (electron-position) model: opt-in via
-        # main_json["train_centroid_model"] (see training/prepare.py). When
-        # off, there's nothing to wait on, so it's trivially "done".
+        # Centroid (electron-position) model: part of hydrated_electron_mode
+        # (see training/prepare.py). When off, there's nothing to wait on,
+        # so it's trivially "done".
         centroid_done = True
-        if main_json.get("train_centroid_model", False):
+        if main_json.get("hydrated_electron_mode", False):
             # training/prepare.py staged <iter>-training/centroid/ and
             # training/launch.py sbatched its job. Done = centroid_<iter>.model
             # written + train_centroid.py's final "best valid RMSE:" line in

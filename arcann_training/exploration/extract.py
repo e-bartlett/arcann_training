@@ -110,10 +110,10 @@ def main(
         (control_path / f"exploration_{padded_curr_iter}.json")
     )
 
-    # Electron-augmented systems (opt-in, off by default): split a trailing
-    # pseudo-particle out of each candidate into its own elec_*.xyz sidecar,
-    # re-attached later by training/prepare.py.
-    has_electron_pseudo_particle = main_json.get("has_electron_pseudo_particle", False)
+    # Opt-in, off by default: split a trailing electron pseudo-particle out
+    # of each candidate into its own elec_*.xyz sidecar (re-attached later
+    # by training/prepare.py), and patch its LAMMPS mass.
+    hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
 
     # Load the previous exploration JSON and training JSON
     if curr_iter > 0:
@@ -446,7 +446,7 @@ def main(
                             "0.00000000              # XX",
                             "1.00000000              # XX",
                         )
-                        if has_electron_pseudo_particle:
+                        if hydrated_electron_mode:
                             # This project's convention: atomsk emits the
                             # electron pseudo-particle typed as Li (atom
                             # type 3); patch its mass to the electron mass
@@ -700,7 +700,7 @@ def main(
                                 extended_xyz_header = f'Lattice="{cella[index_xyz]} 0.0000 0.0000 0.0000 {cellb[index_xyz]} 0.0000 0.0000 0.0000 {cellc[index_xyz]}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
                             else:
                                 extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={index_xyz}'
-                            if has_electron_pseudo_particle:
+                            if hydrated_electron_mode:
                                 # Electron-augmented systems (opt-in): split
                                 # the trailing pseudo-particle line into its
                                 # own elec_*.xyz sidecar (re-attached later
@@ -739,7 +739,7 @@ def main(
                                 for _ in candidate_indexes_padded
                             ]
                         )
-                        if has_electron_pseudo_particle:
+                        if hydrated_electron_mode:
                             elec_files.extend(
                                 [
                                     str(

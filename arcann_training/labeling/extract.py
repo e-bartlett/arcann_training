@@ -495,17 +495,17 @@ def main(
 
         arcann_logger.debug("Extraction done.")
 
-        # Centroid (electron-position) model: opt-in via
-        # main_json["train_centroid_model"] (see training/prepare.py). When
-        # on, the per-iteration centroid retrain needs (a) the not-skipped
-        # config ids in frame order, so to_extxyz_centroid.py can align
-        # data/<sys>_<iter>/ frames to labels + the shared split map, and (b)
-        # the spin-density-centroid label for each, from the stage-2
-        # SPIN_DENSITY cubes (centroid_label_from_cube.py -> the accumulating
+        # Centroid (electron-position) model: part of hydrated_electron_mode
+        # (see training/prepare.py). When on, the per-iteration centroid
+        # retrain needs (a) the not-skipped config ids in frame order, so
+        # to_extxyz_centroid.py can align data/<sys>_<iter>/ frames to
+        # labels + the shared split map, and (b) the spin-density-centroid
+        # label for each, from the stage-2 SPIN_DENSITY cubes
+        # (centroid_label_from_cube.py -> the accumulating
         # control/centroid_labels.csv). training/prepare.py's MACE branch
         # consumes both.
         if main_json.get("mlip_engine", "deepmd") == "mace" and main_json.get(
-            "train_centroid_model", False
+            "hydrated_electron_mode", False
         ):
             config_ids = [
                 f"{s:05d}"
