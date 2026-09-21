@@ -391,7 +391,16 @@ def main(
                         print(starting_structures_path
                             / f"{min_file_name}_{padded_min_index}.xyz")
                         if not is_cell_constant:
-                            extended_xyz_header = f'Lattice="{12.43} 0.0000 0.0000 0.0000 {12.43} 0.0000 0.0000 0.0000 {12.43}" Properties=species:S:1:pos:R:3 Frame={min_index}' #EB hardcoded, some error in extended exploration
+                            if hydrated_electron_mode:
+                                # This project's workaround for a box-size
+                                # readout issue in this exploration path
+                                # (unresolved -- see git history); kept
+                                # under the flag rather than for everyone.
+                                extended_xyz_header = f'Lattice="{12.43} 0.0000 0.0000 0.0000 {12.43} 0.0000 0.0000 0.0000 {12.43}" Properties=species:S:1:pos:R:3 Frame={min_index}'
+                            else:
+                                # Stock ArcaNN behavior: index the per-frame
+                                # cell arrays for the actual minimum frame.
+                                extended_xyz_header = f'Lattice="{cella[min_index]} 0.0000 0.0000 0.0000 {cellb[min_index]} 0.0000 0.0000 0.0000 {cellc[min_index]}" Properties=species:S:1:pos:R:3 Frame={min_index}'
                         else:
                             extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={min_index}'
                         #print(xyz_string)
