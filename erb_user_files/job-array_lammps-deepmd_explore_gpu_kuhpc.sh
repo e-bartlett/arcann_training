@@ -43,7 +43,7 @@
 #----------------------------------------------
 
 SLURM_ARRAY_TASK_ID_LINE=$((SLURM_ARRAY_TASK_ID + 2))
-array_line=$(sed -n "${SLURM_ARRAY_TASK_ID_LINE}p" "job-array-params_lammps-deepmd_explore_gpu_login2.lst")
+array_line=$(sed -n "${SLURM_ARRAY_TASK_ID_LINE}p" "job-array-params_lammps-deepmd_explore_gpu_kuhpc.lst")
 IFS='/' read -ra array_param <<< "${array_line}"
 
 JOB_PATH=${array_param[0]}
