@@ -91,6 +91,17 @@ def _prepare_mace(
     # companion centroid model together -- only this project's
     # electron-augmented systems need either.
     hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
+    electron_pseudo_particle_atom_count = None
+    if hydrated_electron_mode:
+        electron_pseudo_particle_atom_count = main_json.get(
+            "electron_pseudo_particle_atom_count"
+        )
+        if electron_pseudo_particle_atom_count is None:
+            arcann_logger.error(
+                "hydrated_electron_mode is on but electron_pseudo_particle_atom_count "
+                "is not set in config.json. Aborting..."
+            )
+            return 1
 
     # generate_training_json type-checks deepmd_model_version against the
     # numeric default, so drop any string value before the merge, then mark.
@@ -153,7 +164,7 @@ def _prepare_mace(
                 # exploration-candidate sidecar; a dataset with more atoms
                 # than that already carries the electron as a regular atom
                 # type, so no sidecar is needed.
-                base_atom_count = main_json["electron_pseudo_particle_atom_count"]
+                base_atom_count = electron_pseudo_particle_atom_count
                 n_particles = len(
                     np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
                 )
@@ -350,7 +361,7 @@ def _prepare_mace(
                 return 1
 
         centroid_csv = control_path / "centroid_labels.csv"
-        base_atom_count = main_json.get("electron_pseudo_particle_atom_count")
+        base_atom_count = electron_pseudo_particle_atom_count
         for iteration in range(1, curr_iter + 1):
             padded_iteration = str(iteration).zfill(3)
             for system_auto in main_json["systems_auto"]:

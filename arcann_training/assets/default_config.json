@@ -4,7 +4,8 @@
         "systems_auto": [""],
         "nnp_count": 3,
         "mlip_engine": "deepmd",
-        "mace_env": ""
+        "mace_env": "",
+        "hydrated_electron_mode": false
     },
     "training":
     {
