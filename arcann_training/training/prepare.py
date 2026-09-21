@@ -10,8 +10,6 @@ Last modified: 2024/07/14
 """
 
 # Standard library modules
-import hashlib
-import json
 import logging
 import sys
 from pathlib import Path
@@ -78,30 +76,21 @@ def _prepare_mace(
 
     * ``training_json`` via the shared merge, then ``deepmd_model_version``
       forced to ``"mace"`` and compression marked done (n/a for MACE).
-    * ``deepmd_npy_to_extxyz.py`` over ``data/init_he* + data/<sys>_<iter>``
-      (with the matching ``elec_candidates`` for the 192-atom new-iter
-      dirs) -> ``<iter>-training/{train,valid}.xyz``, copied into each NNP.
+    * ArcaNN does NOT convert or generate MACE training data itself: this
+      just requires ``<iter>-training/{train,valid}.xyz`` to already exist
+      (prepared outside of ArcaNN, by hand or your own scripts), and copies
+      them into each NNP directory. Same for
+      ``<iter>-training/centroid/{train,valid,test}.xyz`` when
+      ``hydrated_electron_mode`` is on.
     * per NNP: ``mace_train.yaml`` (from ``user_files/mace_train_r<N>.yaml``
       with ``_R_SEED_`` / ``_R_MACE_MAX_EPOCHS_`` filled) and
       ``job_mace_train_<arch>_<machine>.sh``.
     """
     user_files_path = training_path / "user_files"
 
-    # Opt-in, off by default: gates the elec-candidate sidecar AND the
-    # companion centroid model together -- only this project's
-    # electron-augmented systems need either.
+    # Opt-in, off by default: whether a companion centroid (electron-
+    # position) model is also staged alongside the force model.
     hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
-    electron_pseudo_particle_atom_count = None
-    if hydrated_electron_mode:
-        electron_pseudo_particle_atom_count = main_json.get(
-            "electron_pseudo_particle_atom_count"
-        )
-        if electron_pseudo_particle_atom_count is None:
-            arcann_logger.error(
-                "hydrated_electron_mode is on but electron_pseudo_particle_atom_count "
-                "is not set in config.json. Aborting..."
-            )
-            return 1
 
     # generate_training_json type-checks deepmd_model_version against the
     # numeric default, so drop any string value before the merge, then mark.
@@ -134,59 +123,19 @@ def _prepare_mace(
         "job_email", user_input_json, previous_training_json, default_input_json
     )
 
-    # --- collect the DeePMD data dirs to convert ---------------------------
-    initial_datasets_info = check_initial_datasets(training_path)
-    data_path = training_path / "data"
-    check_directory(data_path)
-
-    convert_dirs = []  # list of (deepmd_dir, elec_xyz_or_None)
-    trained_count = 0
-
-    if training_json["use_initial_datasets"]:
-        for name in initial_datasets_info:
-            if (data_path / name).is_dir():
-                convert_dirs.append((data_path / name, None))
-                trained_count += initial_datasets_info[name]
-
-    for iteration in range(1, curr_iter + 1):
-        padded_iteration = str(iteration).zfill(3)
-        for system_auto in main_json["systems_auto"]:
-            data_dir = data_path / f"{system_auto}_{padded_iteration}"
-            if not data_dir.is_dir():
-                continue
-            trained_count += np.load(data_dir / "set.000" / "box.npy").shape[0]
-            elec_xyz = None
-            if hydrated_electron_mode:
-                # Electron-augmented systems (opt-in): the labeling output
-                # for a not-yet-augmented dataset has exactly
-                # electron_pseudo_particle_atom_count atoms, and the electron
-                # pseudo-particle position instead lives in that iteration's
-                # exploration-candidate sidecar; a dataset with more atoms
-                # than that already carries the electron as a regular atom
-                # type, so no sidecar is needed.
-                base_atom_count = electron_pseudo_particle_atom_count
-                n_particles = len(
-                    np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
-                )
-                if n_particles <= base_atom_count:
-                    elec_xyz = (
-                        training_path
-                        / f"{padded_iteration}-exploration"
-                        / f"{system_auto}"
-                        / f"elec_candidates_{padded_iteration}_{system_auto}.xyz"
-                    )
-            convert_dirs.append((data_dir, elec_xyz))
-    # NOTE: -disturbed / adhoc / extra_ datasets are not handled here (only
-    # relevant when systems_auto has more than one entry). Add them the same
-    # way if a future config needs them.
-
-    if not convert_dirs:
-        arcann_logger.error(f"No data dirs found under {data_path}. Aborting...")
+    # --- force-model training set: prepared outside of ArcaNN --------------
+    # train.xyz / valid.xyz are not generated here; they must already be
+    # sitting in this iteration's <iter>-training/ directory, prepared by
+    # you (or whatever external workflow you use to go from labeled data to
+    # a MACE-ready extxyz set).
+    train_xyz = current_path / "train.xyz"
+    valid_xyz = current_path / "valid.xyz"
+    if not train_xyz.is_file() or not valid_xyz.is_file():
+        arcann_logger.error(
+            f"{train_xyz} and {valid_xyz} must already exist (prepared "
+            f"outside of ArcaNN's automation). Aborting..."
+        )
         return 1
-    arcann_logger.info(
-        f"MACE force set: {len(convert_dirs)} dir(s), ~{trained_count} configs."
-    )
-    arcann_logger.debug(f"convert_dirs: {convert_dirs}")
 
     # --- epochs + walltime (P2 tunes these) -------------------------------
     # training_json["numb_steps"] is a DeePMD batch count by default
@@ -209,8 +158,6 @@ def _prepare_mace(
 
     training_json = {
         **training_json,
-        "training_datasets": [d.name for d, _ in convert_dirs],
-        "trained_count": trained_count,
         "is_prepared": True,
         "is_launched": False,
         "is_checked": False,
@@ -222,59 +169,6 @@ def _prepare_mace(
         "is_compressed": True,
         "is_incremented": False,
     }
-
-    # --- shared train/valid split map for the new-iteration configs -------
-    # Both converters (force + centroid) read this so a config lands on the
-    # same train/valid side for both models. Key "<sys>_<iter>_<frame:05d>"
-    # (== deepmd_npy_to_extxyz.py's per-frame `config` id); assignment is a
-    # stable per-key hash so a config never moves as later iterations grow
-    # the set. The seed set (init_he*) is NOT in the map -- it keeps its
-    # own split_id.npy split, test grain included. valid_frac matches the
-    # converters' own default.
-    split_map = {}
-    split_valid_frac = 0.1
-    for iteration in range(1, curr_iter + 1):
-        padded_iteration = str(iteration).zfill(3)
-        for system_auto in main_json["systems_auto"]:
-            data_dir = data_path / f"{system_auto}_{padded_iteration}"
-            if not data_dir.is_dir():
-                continue
-            n_frames = np.load(data_dir / "set.000" / "box.npy").shape[0]
-            for i in range(n_frames):
-                key = f"{data_dir.name}_{i:05d}"
-                frac = int(hashlib.sha1(key.encode()).hexdigest(), 16) / (16 ** 40)
-                split_map[key] = "valid" if frac < split_valid_frac else "train"
-    split_map_path = current_path / "split_map.json"
-    if split_map:
-        split_map_path.write_text(json.dumps(split_map, indent=2, sort_keys=True))
-
-    # --- run the converter once, into <iter>-training/ -------------------
-    mace_env = main_json.get("mace_env", "")
-    converter = user_files_path / "deepmd_npy_to_extxyz.py"
-    if not converter.is_file():
-        arcann_logger.error(
-            f"{converter} missing (add it to user_files/). Aborting..."
-        )
-        return 1
-    converter_py = f"{mace_env}/bin/python" if mace_env else "python"
-    cmd = [
-        converter_py, str(converter),
-        "--out", str(current_path),
-        "--seed", padded_curr_iter,
-    ]
-    if split_map:
-        cmd += ["--split-file", str(split_map_path)]
-    for data_dir, elec_xyz in convert_dirs:
-        cmd += ["--deepmd-dir", str(data_dir)]
-        if elec_xyz is not None:
-            if not elec_xyz.is_file():
-                arcann_logger.error(f"electron candidates {elec_xyz} missing. Aborting...")
-                return 1
-            cmd += ["--elec-xyz", str(elec_xyz)]
-    arcann_logger.debug(f"converter cmd: {' '.join(cmd)}")
-    if subprocess.run(cmd).returncode != 0 or not (current_path / "train.xyz").is_file():
-        arcann_logger.error(f"deepmd_npy_to_extxyz.py failed. Aborting...")
-        return 1
 
     # --- per-NNP: yaml + job + copy the xyz ------------------------------
     for nnp in range(1, main_json["nnp_count"] + 1):
@@ -325,76 +219,24 @@ def _prepare_mace(
 
     # --- centroid (electron-position) model: part of hydrated_electron_mode
     # This project also trains a companion "centroid" model that regresses
-    # the electron's centroid position, sharing the same growing label set:
-    # <iter>-training/centroid/{train,valid,test}.xyz via
-    # to_extxyz_centroid.py (seed mode over the initial datasets, then one
-    # append per new not-yet-augmented data/<sys>_<iter>/ dir joined to
-    # control/centroid_labels.csv on the config id and split by the shared
-    # split_map), then the centroid training job is staged for
-    # training/launch.py to sbatch alongside the force jobs.
+    # the electron's centroid position, sharing the same growing label set.
+    # Like the force set above, <iter>-training/centroid/{train,valid,test}.xyz
+    # is prepared outside of ArcaNN's automation; this step just stages the
+    # centroid training job once that data is in place.
     if hydrated_electron_mode:
-        centroid_conv = user_files_path / "to_extxyz_centroid.py"
         centroid_job_name = f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
-        if not centroid_conv.is_file():
-            arcann_logger.error(f"{centroid_conv} missing (add it to user_files/). Aborting...")
-            return 1
         if not (user_files_path / centroid_job_name).is_file():
             arcann_logger.error(f"No {centroid_job_name} in {user_files_path}. Aborting...")
             return 1
 
         centroid_dir = current_path / "centroid"
-        centroid_dir.mkdir(exist_ok=True)
         (training_path / "NNP").mkdir(parents=True, exist_ok=True)
 
-        for name in initial_datasets_info:
-            seed_dir = data_path / name
-            if not seed_dir.is_dir():
-                continue
-            seed_cmd = [
-                converter_py, str(centroid_conv),
-                "--deepmd-dir", str(seed_dir),
-                "--out", str(centroid_dir),
-            ]
-            arcann_logger.debug(f"centroid seed cmd: {' '.join(seed_cmd)}")
-            if subprocess.run(seed_cmd).returncode != 0:
-                arcann_logger.error(f"to_extxyz_centroid.py (seed) failed. Aborting...")
-                return 1
-
-        centroid_csv = control_path / "centroid_labels.csv"
-        base_atom_count = electron_pseudo_particle_atom_count
-        for iteration in range(1, curr_iter + 1):
-            padded_iteration = str(iteration).zfill(3)
-            for system_auto in main_json["systems_auto"]:
-                data_dir = data_path / f"{system_auto}_{padded_iteration}"
-                if not data_dir.is_dir():
-                    continue
-                n_particles = len(
-                    np.genfromtxt(data_dir / "type.raw", dtype=int).reshape(-1)
-                )
-                if base_atom_count is not None and n_particles > base_atom_count:
-                    continue  # already carries the electron; no centroid label track
-                ids_file = data_dir / "config_ids.txt"
-                if not centroid_csv.is_file() or not ids_file.is_file():
-                    arcann_logger.error(
-                        f"centroid append needs {centroid_csv} and {ids_file} -- "
-                        f"labeling/extract.py's MACE branch writes both. Aborting..."
-                    )
-                    return 1
-                append_cmd = [
-                    converter_py, str(centroid_conv),
-                    "--out", str(centroid_dir),
-                    "--extra-deepmd-dir", str(data_dir),
-                    "--config-ids-file", str(ids_file),
-                    "--centroid-csv", str(centroid_csv),
-                    "--split-file", str(split_map_path),
-                ]
-                arcann_logger.debug(f"centroid append cmd: {' '.join(append_cmd)}")
-                if subprocess.run(append_cmd).returncode != 0:
-                    arcann_logger.error(f"to_extxyz_centroid.py (append) failed. Aborting...")
-                    return 1
-
         if not (centroid_dir / "train.xyz").is_file():
-            arcann_logger.error(f"no {centroid_dir / 'train.xyz'} produced. Aborting...")
+            arcann_logger.error(
+                f"{centroid_dir / 'train.xyz'} must already exist (prepared "
+                f"outside of ArcaNN's automation). Aborting..."
+            )
             return 1
 
         centroid_job = replace_in_slurm_file_general(
