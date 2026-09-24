@@ -23,7 +23,7 @@ separate env with `mace-torch`/`torch` installed.
 
 ## If `mlip_engine: "mace"`, you additionally need in `user_files/`
 
-- `mace_train_r<N>.yaml` — MACE `run_train` config template (highest `<N>` wins).
+- `mace_train.yaml` — MACE `run_train` config template.
 - `job_mace_train_<arch_type>_<machine>.sh` — training job template.
 - `job_mace_centroid_<arch_type>_<machine>.sh` — only if `hydrated_electron_mode: true`.
 

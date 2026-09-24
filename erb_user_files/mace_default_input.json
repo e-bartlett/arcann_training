@@ -1,0 +1,5 @@
+{
+    "mace_max_num_epochs": 500,
+    "mace_batch_size": 10,
+    "mace_valid_batch_size": 10
+}

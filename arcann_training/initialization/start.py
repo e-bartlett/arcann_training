@@ -33,6 +33,15 @@ from arcann_training.initialization.utils import (
     check_typeraw_properties,
 )
 from arcann_training.common.utils import natural_sort_key
+from arcann_training.common.xyz import is_isolated_atom_frame, iter_xyz_frames_raw
+
+
+def count_xyz_frames(xyz_path: Path) -> int:
+    """Count the frames in an (extended) XYZ file, skipping IsolatedAtom (E0) frames."""
+    return sum(
+        not is_isolated_atom_frame(comment)
+        for comment, _ in iter_xyz_frames_raw(xyz_path)
+    )
 
 
 # Main function
@@ -166,7 +175,24 @@ def main(
 
     # Create and set the initial datasets JSON
     initial_datasets_json = {}
+    is_mace = main_json.get("mlip_engine", "deepmd") == "mace"
     for initial_dataset_path in initial_datasets_paths:
+        if is_mace:
+            # MACE datasets are extended XYZ files (train.xyz / val.xyz) rather
+            # than DeePMD type.raw + set.000/*.npy. Only train.xyz is counted,
+            # matching DeePMD's meaning of "configurations trained on".
+            check_file_existence(initial_dataset_path / "train.xyz")
+            check_file_existence(initial_dataset_path / "val.xyz")
+            initial_datasets_json[initial_dataset_path.name] = count_xyz_frames(
+                initial_dataset_path / "train.xyz"
+            )
+            arcann_logger.info(
+                f"{initial_dataset_path.name}: "
+                f"{initial_datasets_json[initial_dataset_path.name]} train frames, "
+                f"{count_xyz_frames(initial_dataset_path / 'val.xyz')} val frames "
+                f"(IsolatedAtom frames excluded)."
+            )
+            continue
         check_file_existence(initial_dataset_path / "type.raw")
         # Check the type.raw file against the properties
         check_typeraw_properties(
@@ -179,8 +205,9 @@ def main(
         initial_datasets_json[initial_dataset_path.name] = np.load(
             initial_dataset_set_path / "box.npy"
         ).shape[0]
+        del initial_dataset_set_path
     arcann_logger.debug(f"initial_datasets_json: {initial_datasets_json}")
-    del initial_dataset_path, initial_datasets_paths, initial_dataset_set_path
+    del initial_dataset_path, initial_datasets_paths, is_mace
 
     # Populate
     main_json["initial_datasets"] = [_ for _ in initial_datasets_json.keys()]

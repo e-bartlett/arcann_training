@@ -100,15 +100,17 @@ def main(
     training_json = load_json_file((control_path / f"training_{padded_curr_iter}.json"))
 
     # MACE "freezing" = compile each trained `.model` to the LAMMPS ML-IAP
-    # deployable with `mace_create_lammps_model --format=mliap --dtype float32`
-    # (cuEquivariance fused kernels; MD_PERFORMANCE_PLAN.md Phase 3.5). That
+    # deployable with `python -m mace.cli.create_lammps_model --format=mliap`
+    # (default float64, cuEquivariance fused kernels; mirrors
+    # testing_mace/run_dynamics/convert_model.sh). That
     # conversion must run on a GPU of the same Kokkos arch as inference
     # (AMPERE86 / A40), so -- unlike the old libtorch `.model-lammps.pt` path,
     # which needed no GPU -- it is an sbatch job, not an inline call. Mirrors
     # the DeePMD freeze flow below: this phase only launches; `training
     # check_freeze` verifies NNP/mace_<nnp>_<iter>.model-mliap_lammps.pt and
-    # sets is_frozen. The freeze job rsyncs the plain `.model` and the
-    # `.model-mliap_lammps.pt` into NNP/.
+    # sets is_frozen. Only the stage-two (SWA) model `_stagetwo.model` is
+    # converted; the freeze job rsyncs it and its `-mliap_lammps.pt` into NNP/
+    # as mace_<nnp>_<iter>.model and .model-mliap_lammps.pt.
     if main_json.get("mlip_engine", "deepmd") == "mace":
         if training_json["is_freeze_launched"]:
             arcann_logger.critical(f"Already launched...")
@@ -186,12 +188,25 @@ def main(
         nnp_dir = training_path / "NNP"
         nnp_dir.mkdir(parents=True, exist_ok=True)
 
+        # Only the stage-two (SWA) model is deployed. Check every NNP before
+        # launching anything so a missing one can't leave a partial launch.
+        for nnp in range(1, main_json["nnp_count"] + 1):
+            stagetwo_path = (
+                current_path / f"{nnp}" / f"mace_{nnp}_{padded_curr_iter}_stagetwo.model"
+            )
+            check_file_existence(
+                stagetwo_path,
+                error_msg=f"Stage-two model not found: `{stagetwo_path}`. "
+                f"MACE training must run with swa enabled and reach stage two.",
+            )
+        del stagetwo_path
+
         completed_count = 0
         walltime_approx_s = 1800
         for nnp in range(1, main_json["nnp_count"] + 1):
             local_path = current_path / f"{nnp}"
-            model_name = f"mace_{nnp}_{padded_curr_iter}.model"
-            check_file_existence(local_path / model_name)
+            model_name = f"mace_{nnp}_{padded_curr_iter}_stagetwo.model"
+            nnp_model_name = f"mace_{nnp}_{padded_curr_iter}.model"
 
             job_file = replace_in_slurm_file_general(
                 master_job_file,
@@ -205,6 +220,9 @@ def main(
             )
             job_file = replace_substring_in_string_list(
                 job_file, "_R_MACE_NNP_DIR_", str(nnp_dir.resolve())
+            )
+            job_file = replace_substring_in_string_list(
+                job_file, "_R_MACE_NNP_MODEL_", nnp_model_name
             )
             job_file = replace_substring_in_string_list(
                 job_file, "_R_MACE_LOG_", f"mace_{nnp}_{padded_curr_iter}_freeze.log"
@@ -228,7 +246,7 @@ def main(
                 arcann_logger.critical(
                     f"MACE Freeze - '{nnp}' NOT launched - No job file."
                 )
-            del local_path, model_name, job_out_name
+            del local_path, model_name, nnp_model_name, job_out_name
         del nnp, master_job_file
 
         if completed_count == main_json["nnp_count"]:

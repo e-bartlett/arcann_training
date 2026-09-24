@@ -6,7 +6,10 @@
 #     --seed <seed> --model_dir . --log_dir . --results_dir ./results \
 #     --train_file train.xyz --valid_file valid.xyz > training.log 2>&1
 #
-# _R_ slots (prepare.py fills these): _R_SEED_, _R_MACE_MAX_EPOCHS_.
+# _R_ slots (prepare.py fills these): _R_SEED_.
+# Overridable from the training input.json (value here is the default):
+#   mace_max_num_epochs -> max_num_epochs, mace_batch_size -> batch_size,
+#   mace_valid_batch_size -> valid_batch_size.
 # name / seed / files / dirs stay on the CLI (see the job template).
 
 model: MACE
@@ -55,6 +58,6 @@ default_dtype: float32
 device: cuda
 batch_size: 4
 valid_batch_size: 8
-max_num_epochs: _R_MACE_MAX_EPOCHS_
+max_num_epochs: 500
 seed: _R_SEED_
 save_cpu: true

@@ -20,6 +20,12 @@ parse_extended_format(comment_line: str) -> Tuple[List[float], bool]
 
 write_xyz_frame(trajectory_file_path: Path, frame_idx: int, atom_counts: np.ndarray, atomic_symbols: np.ndarray, atomic_coordinates: np.ndarray, cell_info: np.ndarray, comments: List[str]) -> None
     A function to write the XYZ coordinates of a specific frame from a trajectory to a file, including extended format lattice information if provided.
+
+iter_xyz_frames_raw(xyz_file_path: Path) -> Iterator[Tuple[str, List[str]]]
+    A function to iterate over the frames of an (extended) XYZ file as raw text, preserving every column.
+
+is_isolated_atom_frame(comment_line: str) -> bool
+    A function to check whether an extended XYZ comment line is tagged config_type=IsolatedAtom (MACE E0 reference).
 """
 
 # TODO: Homogenize the docstrings for this module
@@ -27,7 +33,7 @@ write_xyz_frame(trajectory_file_path: Path, frame_idx: int, atom_counts: np.ndar
 # Standard library modules
 import re
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Iterator, Tuple, List, Optional
 
 # Third-party modules
 import numpy as np
@@ -272,3 +278,55 @@ def write_xyz_frame(
             coords = atomic_coordinates[frame_idx, atom_index]
             coords_line = " ".join(f"{coord:.6f}" for coord in coords)
             file.write(f"{symbol} {coords_line}\n")
+
+
+ISOLATED_ATOM_RE = re.compile(r"""config_type=["']?IsolatedAtom\b""")
+
+
+def iter_xyz_frames_raw(xyz_file_path: Path) -> Iterator[Tuple[str, List[str]]]:
+    """
+    Iterate over the frames of an (extended) XYZ file as raw text.
+
+    Unlike parse_xyz_trajectory_file, every column (forces, charges, ...) is
+    kept untouched, so frames can be copied verbatim.
+
+    Parameters
+    ----------
+    xyz_file_path : Path
+        The path to the XYZ file.
+
+    Yields
+    ------
+    Tuple[str, List[str]]
+        The comment line and the atom lines of each frame (newlines kept).
+    """
+    with xyz_file_path.open() as xyz_file:
+        while True:
+            header = xyz_file.readline()
+            if not header:
+                break
+            if not header.strip():
+                continue
+            natoms = int(header.split()[0])
+            comment_line = xyz_file.readline()
+            atom_lines = [xyz_file.readline() for _ in range(natoms)]
+            yield comment_line, atom_lines
+
+
+def is_isolated_atom_frame(comment_line: str) -> bool:
+    """
+    Check whether an extended XYZ comment line is tagged config_type=IsolatedAtom.
+
+    Such frames are MACE E0 reference energies, not training configurations.
+
+    Parameters
+    ----------
+    comment_line : str
+        The comment (second) line of an extended XYZ frame.
+
+    Returns
+    -------
+    bool
+        True if the frame is an isolated atom reference.
+    """
+    return bool(ISOLATED_ATOM_RE.search(comment_line))

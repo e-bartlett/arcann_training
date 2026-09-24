@@ -15,10 +15,12 @@ import sys
 from pathlib import Path
 from copy import deepcopy
 import random
+import re
 import subprocess
 
 # Non-standard library imports
 import numpy as np
+import yaml
 
 # Local imports
 from arcann_training.common.check import validate_step_folder
@@ -42,6 +44,7 @@ from arcann_training.common.machine import (
     get_machine_spec_for_step,
 )
 from arcann_training.common.slurm import replace_in_slurm_file_general
+from arcann_training.common.xyz import is_isolated_atom_frame, iter_xyz_frames_raw
 from arcann_training.training.utils import (
     calculate_decay_rate,
     calculate_decay_steps,
@@ -49,6 +52,61 @@ from arcann_training.training.utils import (
     validate_deepmd_config,
     generate_training_json,
 )
+
+
+def _concatenate_init_xyz(src_paths, dest, arcann_logger):
+    """Concatenate extended XYZ files into ``dest`` for MACE.
+
+    Each initial dataset may carry its own IsolatedAtom (E0) frames; only the
+    first one per element is kept, with a warning if a later one differs.
+    """
+    seen_isolated = {}
+    with dest.open("w") as out:
+        for src_path in src_paths:
+            for comment, atom_lines in iter_xyz_frames_raw(src_path):
+                if is_isolated_atom_frame(comment):
+                    element = atom_lines[0].split()[0]
+                    if element in seen_isolated:
+                        if seen_isolated[element] != (comment, atom_lines):
+                            arcann_logger.warning(
+                                f"IsolatedAtom frame for {element} in {src_path} "
+                                f"differs from an earlier one; keeping the first."
+                            )
+                        continue
+                    seen_isolated[element] = (comment, atom_lines)
+                out.write(f"{len(atom_lines)}\n{comment}")
+                out.writelines(atom_lines)
+    arcann_logger.info(
+        f"Built {dest} from: {', '.join(str(path) for path in src_paths)}."
+    )
+
+
+# input.json key -> (mace_train.yaml key, fallback if the yaml doesn't set it).
+# Keep erb_user_files/mace_default_input.json in sync with the fallbacks.
+MACE_YAML_INPUT_KEYS = {
+    "mace_max_num_epochs": ("max_num_epochs", 500),
+    "mace_batch_size": ("batch_size", 10),
+    "mace_valid_batch_size": ("valid_batch_size", 10),
+}
+
+
+def _set_yaml_keys(lines, values):
+    """Set top-level ``key: value`` lines in a yaml text, keeping comments.
+
+    Every existing line for a key is rewritten (so duplicates can't disagree);
+    keys not present are appended.
+    """
+    lines = list(lines)
+    for key, value in values.items():
+        pattern = re.compile(rf"^{re.escape(key)}\s*:")
+        found = False
+        for i, line in enumerate(lines):
+            if pattern.match(line):
+                lines[i] = f"{key}: {value}"
+                found = True
+        if not found:
+            lines.append(f"{key}: {value}")
+    return lines
 
 
 def _prepare_mace(
@@ -76,14 +134,17 @@ def _prepare_mace(
 
     * ``training_json`` via the shared merge, then ``deepmd_model_version``
       forced to ``"mace"`` and compression marked done (n/a for MACE).
-    * ArcaNN does NOT convert or generate MACE training data itself: this
-      just requires ``<iter>-training/{train,valid}.xyz`` to already exist
-      (prepared outside of ArcaNN, by hand or your own scripts), and copies
-      them into each NNP directory. Same for
-      ``<iter>-training/centroid/{train,valid,test}.xyz`` when
-      ``hydrated_electron_mode`` is on.
-    * per NNP: ``mace_train.yaml`` (from ``user_files/mace_train_r<N>.yaml``
-      with ``_R_SEED_`` / ``_R_MACE_MAX_EPOCHS_`` filled) and
+    * ArcaNN does NOT convert or generate MACE training data itself: at the
+      first iteration it concatenates ``data/init_*/{train,val}.xyz`` into
+      ``<iter>-training/{train,valid}.xyz`` (if not already there); later
+      iterations require them to already exist (prepared outside of ArcaNN,
+      by hand or your own scripts). Either way they are copied into each
+      NNP directory, and, when ``hydrated_electron_mode`` is on, into
+      ``<iter>-training/centroid/`` (unless a centroid set is already there).
+    * per NNP: ``mace_train.yaml`` (from ``user_files/mace_train.yaml``
+      with ``_R_SEED_`` filled and the ``MACE_YAML_INPUT_KEYS`` settings
+      -- ``mace_max_num_epochs``, ``mace_batch_size``,
+      ``mace_valid_batch_size`` in input.json -- applied) and
       ``job_mace_train_<arch>_<machine>.sh``.
     """
     user_files_path = training_path / "user_files"
@@ -102,15 +163,12 @@ def _prepare_mace(
     current_input_json["deepmd_model_version"] = "mace"
     arcann_logger.info(f"Engine: MACE.")
 
-    # MACE run_train config template: mace_train_r<N>.yaml, highest N wins.
-    yaml_list = sorted(
-        user_files_path.glob("mace_train_r*.yaml"),
-        key=lambda p: int(p.stem.rsplit("_r", 1)[-1]),
-    )
-    if not yaml_list:
-        arcann_logger.error(f"No mace_train_r*.yaml in {user_files_path}. Aborting...")
+    # MACE run_train config template.
+    mace_config_path = user_files_path / "mace_train.yaml"
+    if not mace_config_path.is_file():
+        arcann_logger.error(f"No mace_train.yaml in {user_files_path}. Aborting...")
         return 1
-    mace_config_template = textfile_to_string_list(yaml_list[-1])
+    mace_config_template = textfile_to_string_list(mace_config_path)
 
     # Job file for this machine.
     job_file_name = f"job_mace_train_{machine_spec['arch_type']}_{machine}.sh"
@@ -123,13 +181,27 @@ def _prepare_mace(
         "job_email", user_input_json, previous_training_json, default_input_json
     )
 
-    # --- force-model training set: prepared outside of ArcaNN --------------
-    # train.xyz / valid.xyz are not generated here; they must already be
-    # sitting in this iteration's <iter>-training/ directory, prepared by
-    # you (or whatever external workflow you use to go from labeled data to
-    # a MACE-ready extxyz set).
+    # --- force-model training set -----------------------------------------
+    # At the first iteration (with use_initial_datasets), train.xyz /
+    # valid.xyz are built by concatenating {train,val}.xyz of every initial
+    # dataset (data/init_*), unless already present. Later iterations include
+    # newly labeled data, so they must be prepared outside of ArcaNN and
+    # placed in this iteration's <iter>-training/.
     train_xyz = current_path / "train.xyz"
     valid_xyz = current_path / "valid.xyz"
+    if curr_iter == 0 and training_json["use_initial_datasets"]:
+        init_dataset_paths = [
+            training_path / "data" / name for name in main_json["initial_datasets"]
+        ]
+        for src_name, dest in (("train.xyz", train_xyz), ("val.xyz", valid_xyz)):
+            if dest.is_file():
+                continue
+            src_paths = [path / src_name for path in init_dataset_paths]
+            missing = [str(path) for path in src_paths if not path.is_file()]
+            if missing:
+                arcann_logger.error(f"Not found: {', '.join(missing)}. Aborting...")
+                return 1
+            _concatenate_init_xyz(src_paths, dest, arcann_logger)
     if not train_xyz.is_file() or not valid_xyz.is_file():
         arcann_logger.error(
             f"{train_xyz} and {valid_xyz} must already exist (prepared "
@@ -137,16 +209,39 @@ def _prepare_mace(
         )
         return 1
 
+    # --- user-settable mace_train.yaml keys --------------------------------
+    # Priority: input.json > previous iteration > value in mace_train.yaml >
+    # fallback below. The resolved value is written into each NNP's yaml and
+    # recorded in used_input.json / training_<iter>.json.
+    try:
+        mace_config_yaml = yaml.safe_load("\n".join(mace_config_template)) or {}
+    except yaml.YAMLError:
+        # e.g. an unquoted _R_ slot the parser chokes on; fall back to fallbacks.
+        mace_config_yaml = {}
+    mace_yaml_overrides = {}
+    for input_key, (yaml_key, fallback) in MACE_YAML_INPUT_KEYS.items():
+        if user_input_json.get(input_key) not in (None, "default"):
+            value = user_input_json[input_key]
+        elif input_key in previous_training_json:
+            value = previous_training_json[input_key]
+        elif isinstance(mace_config_yaml.get(yaml_key), int):
+            value = mace_config_yaml[yaml_key]
+        else:
+            value = fallback
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            arcann_logger.error(
+                f"'{input_key}' must be a positive integer (got {value!r}). Aborting..."
+            )
+            return 1
+        mace_yaml_overrides[yaml_key] = value
+        training_json[input_key] = value
+        current_input_json[input_key] = value
+        arcann_logger.info(f"MACE {yaml_key}: {value}")
+    mace_config_template = _set_yaml_keys(mace_config_template, mace_yaml_overrides)
+
     # --- epochs + walltime (P2 tunes these) -------------------------------
-    # training_json["numb_steps"] is a DeePMD batch count by default
-    # (400000); a small value is read as an explicit MACE epoch request.
-    mace_default_epochs = 400
     mace_s_per_epoch = 150.0  # ~1.5x the L40 figure in gpu_survey_summary.md
-    max_epochs = (
-        int(training_json["numb_steps"])
-        if training_json["numb_steps"] <= 10000
-        else mace_default_epochs
-    )
+    max_epochs = mace_yaml_overrides["max_num_epochs"]
     if user_input_json.get("mean_s_per_step", 0) > 1:
         mace_s_per_epoch = user_input_json["mean_s_per_step"]
     walltime_approx_s = int(np.ceil(max_epochs * mace_s_per_epoch * 1.3 / 3600) * 3600)
@@ -181,9 +276,6 @@ def _prepare_mace(
 
         mace_config = replace_substring_in_string_list(
             mace_config_template, "_R_SEED_", str(seed)
-        )
-        mace_config = replace_substring_in_string_list(
-            mace_config, "_R_MACE_MAX_EPOCHS_", str(max_epochs)
         )
         string_list_to_textfile(
             local_path / "mace_train.yaml", mace_config, read_only=True
@@ -220,9 +312,10 @@ def _prepare_mace(
     # --- centroid (electron-position) model: part of hydrated_electron_mode
     # This project also trains a companion "centroid" model that regresses
     # the electron's centroid position, sharing the same growing label set.
-    # Like the force set above, <iter>-training/centroid/{train,valid,test}.xyz
-    # is prepared outside of ArcaNN's automation; this step just stages the
-    # centroid training job once that data is in place.
+    # <iter>-training/centroid/{train,valid}.xyz are copied from the force
+    # set above (<iter>-training/{train,valid}.xyz) unless already present,
+    # so a centroid set prepared outside of ArcaNN takes precedence; this
+    # step then stages the centroid training job.
     if hydrated_electron_mode:
         centroid_job_name = f"job_mace_centroid_{machine_spec['arch_type']}_{machine}.sh"
         if not (user_files_path / centroid_job_name).is_file():
@@ -230,7 +323,15 @@ def _prepare_mace(
             return 1
 
         centroid_dir = current_path / "centroid"
+        centroid_dir.mkdir(exist_ok=True)
         (training_path / "NNP").mkdir(parents=True, exist_ok=True)
+
+        for xyz in ("train.xyz", "valid.xyz"):
+            if not (centroid_dir / xyz).is_file():
+                subprocess.run(
+                    ["rsync", "-a", str(current_path / xyz), str(centroid_dir / xyz)]
+                )
+                arcann_logger.info(f"Copied {current_path / xyz} to {centroid_dir / xyz}.")
 
         if not (centroid_dir / "train.xyz").is_file():
             arcann_logger.error(
