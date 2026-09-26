@@ -342,6 +342,8 @@ def python_to_string_list(file_path: Path) -> List[str]:
         raise OSError(error_msg)
 
     with file_path.open("r") as text_file:
-        file_content = text_file.readlines()
+        # drop only the newline, never the indentation: string_list_to_textfile
+        # adds one back when it joins, so keeping it double-spaced every copy
+        file_content = text_file.read().splitlines()
 
     return file_content if file_content else []
