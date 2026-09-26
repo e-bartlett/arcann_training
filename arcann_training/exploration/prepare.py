@@ -458,6 +458,24 @@ def main(
         if curr_iter == 1:
             # First iteration, so no disturbed starting points
             system_disturbed_start = False
+            # Fork: LAMMPS trajectories can also start from
+            # starting_structures/000_<system>_*.lmp (e.g. frames of the
+            # initial training set), picked at random per trajectory like
+            # later iterations; without such files, user_files/<system>.lmp.
+            starting_point_list = []
+            if system_exploration_type == "lammps":
+                starting_point_list = sorted(
+                    zzz.name
+                    for zzz in (training_path / "starting_structures").glob(
+                        f"{padded_prev_iter}_{system_auto}_*.lmp"
+                    )
+                    if "disturbed" not in zzz.name
+                )
+            if starting_point_list:
+                arcann_logger.info(
+                    f"'{system_auto}': starting from {len(starting_point_list)} structures in 'starting_structures'."
+                )
+            starting_point_list_bckp = deepcopy(starting_point_list)
         else:
             (
                 starting_point_list,
@@ -924,8 +942,9 @@ def main(
                         )
                         input_replace_dict["_R_CENTROID_MODEL_"] = centroid_model_fn
 
-                    # Get data files (starting points) if iteration is > 1
-                    if curr_iter > 1:
+                    # Get data files (starting points) if iteration is > 1,
+                    # or at iteration 1 if starting_structures/000_* exist
+                    if curr_iter > 1 or starting_point_list_bckp:
                         if len(starting_point_list) == 0:
                             starting_point_list = deepcopy(starting_point_list_bckp)
                         system_lammps_data_fn = starting_point_list[
@@ -1612,8 +1631,7 @@ def main(
                 coords,
                 masses,
             )
-        if curr_iter > 1:
-            del starting_point_list, starting_point_list_bckp
+        del starting_point_list, starting_point_list_bckp
         del (
             system_temperature_K,
             system_cell,
