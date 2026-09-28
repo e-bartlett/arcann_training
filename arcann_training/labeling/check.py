@@ -20,6 +20,11 @@ from arcann_training.common.json import load_json_file, write_json_file
 from arcann_training.common.list import textfile_to_string_list, string_list_to_textfile
 from arcann_training.common.filesystem import remove_file
 from arcann_training.common.check import validate_step_folder
+from arcann_training.labeling.utils import (
+    CONFIGS_TO_SKIP_FILENAME,
+    is_config_skipped,
+    read_configs_to_skip,
+)
 
 
 def main(
@@ -76,6 +81,18 @@ def main(
         arcann_logger.error(f"Lock found. Execute first: labeling launch.")
         arcann_logger.error(f"Aborting...")
         return 1
+
+    # Steps listed in configs_to_skip.txt are skipped like those with a "skip" file
+    try:
+        configs_to_skip = read_configs_to_skip(current_path)
+    except ValueError as error:
+        arcann_logger.error(f"{error}")
+        arcann_logger.error(f"Aborting...")
+        return 1
+    if configs_to_skip:
+        arcann_logger.info(
+            f"{CONFIGS_TO_SKIP_FILENAME}: skipping {len(configs_to_skip)} config(s) in every system."
+        )
 
     # Check the normal termination of the labeling phase
     # Counters
@@ -135,7 +152,7 @@ def main(
             padded_labeling_step = str(labeling_step).zfill(5)
             labeling_step_path = system_path / padded_labeling_step
 
-            if (labeling_step_path / "skip").is_file():
+            if is_config_skipped(labeling_step_path, configs_to_skip):
                 # If the step was skipped
                 candidates_skipped_count += 1
                 system_candidates_skipped_count += 1
@@ -233,7 +250,7 @@ def main(
                 padded_labeling_step = str(labeling_step).zfill(5)
                 labeling_step_path = system_path / padded_labeling_step
 
-                if (labeling_step_path / "skip").is_file():
+                if is_config_skipped(labeling_step_path, configs_to_skip):
                     # If the step was skipped
                     candidates_skipped_count += 1
                     system_disturbed_candidates_skipped_count += 1
@@ -336,7 +353,7 @@ def main(
             )
             arcann_logger.critical("Please check manually before relaunching this step")
             arcann_logger.critical(
-                'Or create files named "skip" to skip some configurations'
+                f'Or create files named "skip" (or list them in {CONFIGS_TO_SKIP_FILENAME}) to skip some configurations'
             )
             arcann_logger.critical("Aborting...")
             return 1
@@ -350,7 +367,7 @@ def main(
             )
             arcann_logger.critical("Please check manually before relaunching this step")
             arcann_logger.critical(
-                'Or create files named "skip" to skip some configurations'
+                f'Or create files named "skip" (or list them in {CONFIGS_TO_SKIP_FILENAME}) to skip some configurations'
             )
             arcann_logger.critical("Aborting...")
             return 1

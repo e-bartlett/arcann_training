@@ -31,18 +31,31 @@ separate env with `mace-torch`/`torch` installed.
 labeling job scripts, etc.) to copy from — note they're KU HPC-specific
 (partition names, project ID), so adjust for your own cluster/allocation.
 
-## Biggest behavioral difference: no automated MACE data prep
+## MACE training data
 
-ArcaNN does **not** generate MACE training data. Before running
-`training prepare` on a MACE iteration, you must already have:
+`labeling extract` (with `mlip_engine: "mace"`, CP2K labeling) writes each
+iteration's labeled configs as extended XYZ, in the same format as the
+initial datasets, to `data/<system>_<iter>/train.xyz` (all of them: the
+validation set stays the initial datasets' `val.xyz`; disturbed candidates go
+to `data/<system>-disturbed_<iter>/`). With
+`hydrated_electron_mode: true`, every frame also gets the electron as a dummy
+`X` atom (zero force) at the periodic centroid of the stage-2
+`2_labeling_<NNNNN>-<stride>-SPIN_DENSITY-1_0.cube`, computed by
+`user_files/centroid_label_from_cube.py` (+ `analyze_dataset.py`); the
+centroids are also written to `data/<system>_<iter>/centroid_labels.csv`.
 
-- `<iter>-training/train.xyz` and `valid.xyz`
-- `<iter>-training/centroid/train.xyz` — only if `hydrated_electron_mode: true`
+`training prepare` then builds `<iter>-training/{train,valid}.xyz` by
+concatenating the initial datasets and every `data/<system>_<NNN>/` up to
+the current iteration, and copies them to `<iter>-training/centroid/` for the
+centroid model (which reads the `X` position as its target). A
+`train.xyz`/`valid.xyz` (or `centroid/*.xyz`) already in place is used as is.
 
-prepared by you (or your own scripts), outside of ArcaNN. `training prepare`
-just checks these exist, stages the per-NNP job files, and (with
-`hydrated_electron_mode`) the centroid job — it errors clearly, naming the
-missing file, if they aren't there yet.
+## Skipping labeled configs
+
+Besides an empty `skip` file in a step directory, you can list step indices
+in `<iter>-labeling/configs_to_skip.txt` (space- or newline-separated `NNNNN`,
+`#` comments allowed; applies to every system). Run `labeling check` again
+after changing either, then `labeling extract`.
 
 ## One small fork-specific convenience
 

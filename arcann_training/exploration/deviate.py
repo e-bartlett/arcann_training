@@ -975,8 +975,13 @@ def main(
                             model_deviation_raw = np.genfromtxt(
                                 str(local_path / model_deviation_filename)
                             )
-                            model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
-                            
+                            # Same parsing as the candidate pass above: tandem
+                            # drivers write clean rows, so no every-other-row skip.
+                            if main_json.get("mlip_engine", "deepmd") in ("mace", "deepmd"):
+                                model_deviation = model_deviation_raw
+                            else:
+                                model_deviation = np.concatenate((model_deviation_raw[:2], model_deviation_raw[3::2]))
+
                         min_val = 1e30
                         for selected_idx in selected_indexes:
                             if (

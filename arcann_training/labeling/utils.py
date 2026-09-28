@@ -15,11 +15,18 @@ generate_input_labeling_json(user_input_json: Dict, previous_json: Dict, default
 
 get_system_labeling(merged_input_json: Dict, system_auto_index: int) -> Tuple[float, float, int, int, int]
     Returns a tuple of system labeling parameters based on the input JSON and system number.
+
+read_configs_to_skip(labeling_path: Path) -> Set[int]
+    Read the indices listed in <iter>-labeling/configs_to_skip.txt.
+
+is_config_skipped(labeling_step_path: Path, configs_to_skip: Set[int]) -> bool
+    Whether a labeling step is skipped (a "skip" file or listed in configs_to_skip.txt).
 """
 
 # Standard library modules
 import logging
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Set, Tuple
 
 # Local imports
 from arcann_training.common.utils import catch_errors_decorator
@@ -206,3 +213,66 @@ def get_system_labeling(merged_input_json: Dict, system_auto_index: int) -> Tupl
     ]:
         system_values.append(int(merged_input_json[key][system_auto_index]))
     return tuple(system_values)
+
+
+CONFIGS_TO_SKIP_FILENAME = "configs_to_skip.txt"
+
+
+def read_configs_to_skip(labeling_path: Path) -> Set[int]:
+    """
+    Read the labeling steps to skip from ``<iter>-labeling/configs_to_skip.txt``.
+
+    The file holds step indices (``NNNNN``, leading zeros optional) separated
+    by spaces and/or newlines; anything after a ``#`` on a line is ignored.
+    The indices apply to every system of the iteration. A missing file means
+    nothing is skipped this way (per-step ``skip`` files still work).
+
+    Parameters
+    ----------
+    labeling_path : Path
+        The ``<iter>-labeling`` directory.
+
+    Returns
+    -------
+    Set[int]
+        The step indices to skip.
+
+    Raises
+    ------
+    ValueError
+        If a token is not a non-negative integer.
+    """
+    skip_file = labeling_path / CONFIGS_TO_SKIP_FILENAME
+    if not skip_file.is_file():
+        return set()
+    configs_to_skip = set()
+    for line_number, line in enumerate(skip_file.read_text().splitlines(), start=1):
+        for token in line.split("#", 1)[0].split():
+            if not token.isdigit():
+                raise ValueError(
+                    f"{skip_file}:{line_number}: '{token}' is not a config index (NNNNN)."
+                )
+            configs_to_skip.add(int(token))
+    return configs_to_skip
+
+
+def is_config_skipped(labeling_step_path: Path, configs_to_skip: Set[int]) -> bool:
+    """
+    Whether a labeling step is skipped: it has a ``skip`` file, or its index
+    (the ``NNNNN`` directory name) is listed in ``configs_to_skip.txt``.
+
+    Parameters
+    ----------
+    labeling_step_path : Path
+        The ``<iter>-labeling/<system>/NNNNN`` directory.
+    configs_to_skip : Set[int]
+        The indices from ``read_configs_to_skip``.
+
+    Returns
+    -------
+    bool
+        True if the step is skipped.
+    """
+    return (labeling_step_path / "skip").is_file() or int(
+        labeling_step_path.name
+    ) in configs_to_skip

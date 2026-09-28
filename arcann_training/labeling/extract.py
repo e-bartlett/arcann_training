@@ -31,6 +31,8 @@ from arcann_training.common.parsing_labeling import (
     extract_and_convert_coordinates,
 )
 from arcann_training.common.check import validate_step_folder
+from arcann_training.labeling.utils import is_config_skipped, read_configs_to_skip
+from arcann_training.labeling.extract_mace import extract_mace
 
 # Import constants
 try:
@@ -104,6 +106,38 @@ def main(
     # Create if it doesn't exists the data path.
     (training_path / "data").mkdir(exist_ok=True)
 
+    # Steps listed in configs_to_skip.txt are skipped like those with a "skip"
+    # file ('labeling check' counted both, the arrays below are sized on that)
+    try:
+        configs_to_skip = read_configs_to_skip(current_path)
+    except ValueError as error:
+        arcann_logger.error(f"{error}")
+        arcann_logger.error(f"Aborting...")
+        return 1
+
+    # MACE engine: extended XYZ (with the spin-density centroid as the X atom
+    # in hydrated_electron_mode) instead of DeePMD npy sets.
+    if main_json.get("mlip_engine", "deepmd") == "mace":
+        if extract_mace(
+            arcann_logger,
+            current_path,
+            training_path,
+            padded_curr_iter,
+            main_json,
+            labeling_json,
+            configs_to_skip,
+            Ha_to_eV,
+            au_to_eV_per_A,
+        ):
+            return 1
+        labeling_json["is_extracted"] = True
+        write_json_file(labeling_json, (control_path / f"labeling_{padded_curr_iter}.json"))
+        arcann_logger.info(f"-" * 88)
+        arcann_logger.info(
+            f"Step: {current_step.capitalize()} - Phase: {current_phase.capitalize()} is a success!"
+        )
+        return 0
+
     for system_auto_index, system_auto in enumerate(labeling_json["systems_auto"]):
         arcann_logger.info(
             f"Processing system: {system_auto} ({system_auto_index + 1}/{len(main_json['systems_auto'])})"
@@ -171,7 +205,7 @@ def main(
             padded_labeling_step = str(labeling_step).zfill(5)
             labeling_step_path = system_path / padded_labeling_step
 
-            if not (labeling_step_path / "skip").is_file():
+            if not is_config_skipped(labeling_step_path, configs_to_skip):
                 system_candidates_not_skipped_counter += 1
                 # With the first, we create a type.raw and get the CP2K version
                 if system_candidates_not_skipped_counter == 1:
@@ -259,9 +293,16 @@ def main(
 
                 # Coordinates
                 #EB edit
-                coordinate_xyz = textfile_to_string_list(
+                # Older projects label a separate naive_* copy; fall back to
+                # the standard ArcaNN names when it isn't there.
+                coordinate_xyz_path = (
                     labeling_step_path / f"naive_labeling_{padded_labeling_step}.xyz"
                 )
+                if not coordinate_xyz_path.is_file():
+                    coordinate_xyz_path = (
+                        labeling_step_path / f"labeling_{padded_labeling_step}.xyz"
+                    )
+                coordinate_xyz = textfile_to_string_list(coordinate_xyz_path)
                 #coordinate_xyz = textfile_to_string_list(
                 #    labeling_step_path / f"labeling_{padded_labeling_step}.xyz"
                 #)
@@ -310,10 +351,16 @@ def main(
                     # Forces
                     # EB edit
                     print(padded_labeling_step)
-                    force_cp2k = textfile_to_string_list(
+                    force_cp2k_path = (
                         labeling_step_path
                         / f"2_naive_labeling_{padded_labeling_step}-Forces.for"
                     )
+                    if not force_cp2k_path.is_file():
+                        force_cp2k_path = (
+                            labeling_step_path
+                            / f"2_labeling_{padded_labeling_step}-Forces.for"
+                        )
+                    force_cp2k = textfile_to_string_list(force_cp2k_path)
                     if force_cp2k[-1] == '':
                         force_cp2k = force_cp2k[:-1]
                     #force_cp2k = textfile_to_string_list(
@@ -579,7 +626,7 @@ def main(
                 padded_labeling_step = str(labeling_step).zfill(5)
                 labeling_step_path = system_path / padded_labeling_step
 
-                if not (labeling_step_path / "skip").is_file():
+                if not is_config_skipped(labeling_step_path, configs_to_skip):
                     system_disturbed_candidates_not_skipped_counter += 1
 
                     # With the first, we create a type.raw and get the CP2K version

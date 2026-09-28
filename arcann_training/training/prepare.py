@@ -134,13 +134,14 @@ def _prepare_mace(
 
     * ``training_json`` via the shared merge, then ``deepmd_model_version``
       forced to ``"mace"`` and compression marked done (n/a for MACE).
-    * ArcaNN does NOT convert or generate MACE training data itself: at the
-      first iteration it concatenates ``data/init_*/{train,val}.xyz`` into
-      ``<iter>-training/{train,valid}.xyz`` (if not already there); later
-      iterations require them to already exist (prepared outside of ArcaNN,
-      by hand or your own scripts). Either way they are copied into each
-      NNP directory, and, when ``hydrated_electron_mode`` is on, into
-      ``<iter>-training/centroid/`` (unless a centroid set is already there).
+    * ``<iter>-training/{train,valid}.xyz`` (if not already there) are
+      the concatenation of ``data/init_*/{train,val}.xyz`` and of the
+      labeled sets ``labeling extract`` wrote for iterations 1..<iter>
+      (``data/<sys>_<NNN>/{train,val}.xyz``, electron as the ``X`` atom at
+      the spin-density centroid in ``hydrated_electron_mode``). They are
+      copied into each NNP directory, and, when ``hydrated_electron_mode``
+      is on, into ``<iter>-training/centroid/`` (unless a centroid set is
+      already there).
     * per NNP: ``mace_train.yaml`` (from ``user_files/mace_train.yaml``
       with ``_R_SEED_`` filled and the ``MACE_YAML_INPUT_KEYS`` settings
       -- ``mace_max_num_epochs``, ``mace_batch_size``,
@@ -154,10 +155,13 @@ def _prepare_mace(
     hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
 
     # generate_training_json type-checks deepmd_model_version against the
-    # numeric default, so drop any string value before the merge, then mark.
+    # numeric default, so drop any string value before the merge (also the
+    # previous iteration's "mace"), then mark.
     current_input_json.pop("deepmd_model_version", None)
     training_json, current_input_json = generate_training_json(
-        current_input_json, previous_training_json, default_input_json
+        current_input_json,
+        {k: v for k, v in previous_training_json.items() if k != "deepmd_model_version"},
+        default_input_json,
     )
     training_json["deepmd_model_version"] = "mace"
     current_input_json["deepmd_model_version"] = "mace"
@@ -182,30 +186,50 @@ def _prepare_mace(
     )
 
     # --- force-model training set -----------------------------------------
-    # At the first iteration (with use_initial_datasets), train.xyz /
-    # valid.xyz are built by concatenating {train,val}.xyz of every initial
-    # dataset (data/init_*), unless already present. Later iterations include
-    # newly labeled data, so they must be prepared outside of ArcaNN and
-    # placed in this iteration's <iter>-training/.
+    # train.xyz / valid.xyz are built, unless already present in this
+    # iteration's <iter>-training/ (a hand-made set takes precedence), by
+    # concatenating {train,val}.xyz of every initial dataset (data/init_*,
+    # with use_initial_datasets) and of every labeled set written by the MACE
+    # 'labeling extract' up to this iteration (data/<sys>_<NNN>/ and
+    # data/<sys>-disturbed_<NNN>/, NNN = 001..<iter>).
     train_xyz = current_path / "train.xyz"
     valid_xyz = current_path / "valid.xyz"
-    if curr_iter == 0 and training_json["use_initial_datasets"]:
+    dataset_paths = []
+    if training_json["use_initial_datasets"]:
         init_dataset_paths = [
             training_path / "data" / name for name in main_json["initial_datasets"]
         ]
-        for src_name, dest in (("train.xyz", train_xyz), ("val.xyz", valid_xyz)):
-            if dest.is_file():
-                continue
-            src_paths = [path / src_name for path in init_dataset_paths]
-            missing = [str(path) for path in src_paths if not path.is_file()]
-            if missing:
-                arcann_logger.error(f"Not found: {', '.join(missing)}. Aborting...")
-                return 1
+        missing = [
+            str(path / src_name)
+            for path in init_dataset_paths
+            for src_name in ("train.xyz", "val.xyz")
+            if not (path / src_name).is_file()
+        ]
+        if missing and not (train_xyz.is_file() and valid_xyz.is_file()):
+            arcann_logger.error(f"Not found: {', '.join(missing)}. Aborting...")
+            return 1
+        dataset_paths += init_dataset_paths
+    for iteration in range(1, curr_iter + 1):
+        padded_iteration = str(iteration).zfill(3)
+        for system_auto in main_json["systems_auto"]:
+            for name in (system_auto, f"{system_auto}-disturbed"):
+                labeled_path = training_path / "data" / f"{name}_{padded_iteration}"
+                if (labeled_path / "train.xyz").is_file():
+                    dataset_paths.append(labeled_path)
+    for src_name, dest in (("train.xyz", train_xyz), ("val.xyz", valid_xyz)):
+        if dest.is_file():
+            arcann_logger.info(f"Using the existing {dest}.")
+            continue
+        src_paths = [
+            path / src_name for path in dataset_paths if (path / src_name).is_file()
+        ]
+        if src_paths:
             _concatenate_init_xyz(src_paths, dest, arcann_logger)
     if not train_xyz.is_file() or not valid_xyz.is_file():
         arcann_logger.error(
-            f"{train_xyz} and {valid_xyz} must already exist (prepared "
-            f"outside of ArcaNN's automation). Aborting..."
+            f"{train_xyz} and {valid_xyz} could not be built (no initial "
+            f"datasets and no data/<sys>_<iter>/ from 'labeling extract'), "
+            f"and were not provided. Aborting..."
         )
         return 1
 
