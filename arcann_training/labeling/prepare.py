@@ -64,7 +64,8 @@ def main(
 
     # Copy any project-specific labeling code drop-ins into the working dir.
     for file in glob.glob(f"{training_path}/user_files/labeling_codes/*"):
-        shutil.copy(file, current_path)
+        if Path(file).is_file():
+            shutil.copy(file, current_path)
 
     # Log the step and phase of the program
     arcann_logger.info(
