@@ -43,6 +43,7 @@ from arcann_training.exploration.utils import (
     get_system_disturb,
 )
 from arcann_training.common.xyz import parse_xyz_trajectory_file, write_xyz_frame
+from arcann_training.exploration.deviate import MIN_SELECTION_SPACING
 
 
 def main(
@@ -618,6 +619,14 @@ def main(
                 # Selection of labeling XYZ
                 if QbC_stats["selected_count"] > 0:
                     candidate_indexes = np.array(QbC_indexes["selected_indexes"])
+                    gaps = np.diff(np.sort(candidate_indexes))
+                    if gaps.size > 0 and gaps.min() < MIN_SELECTION_SPACING:
+                        arcann_logger.error(
+                            f"{local_path}: selected configurations are {int(gaps.min())} steps apart "
+                            f"(minimum {MIN_SELECTION_SPACING}). Rerun: exploration deviate."
+                        )
+                        arcann_logger.error(f"Aborting...")
+                        return 1
 
                     if (
                         exploration_json["systems_auto"][system_auto][

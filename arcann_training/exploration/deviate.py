@@ -32,6 +32,19 @@ from arcann_training.exploration.utils import (
 )
 from arcann_training.common.xyz import parse_xyz_trajectory_file
 
+# Hard floor on the gap (in MD steps) between any two selected configurations
+# of one trajectory, applied after every selection path (crash window included).
+MIN_SELECTION_SPACING = 20
+
+
+def enforce_min_spacing(indexes, min_spacing: int = MIN_SELECTION_SPACING) -> np.ndarray:
+    """Greedily keep sorted indexes so consecutive kept ones are >= min_spacing apart."""
+    kept = []
+    for idx in np.sort(np.asarray(indexes, dtype=int)):
+        if not kept or idx - kept[-1] >= min_spacing:
+            kept.append(idx)
+    return np.array(kept, dtype=int)
+
 
 def main(
     current_step: str,
@@ -720,6 +733,10 @@ def main(
 
                 write_json_file(QbC_stats, local_path / "QbC_stats.json", False)
                 write_json_file(QbC_indexes, local_path / "QbC_indexes.json", False)
+                #EB save candidates (skipped trajs have none and are not
+                # counted by the selection loop's candidates_all index)
+                if not (local_path / "skip").is_file():
+                    candidates_all.append(candidates.tolist())
                 del (
                     local_path,
                     model_deviation_filename,
@@ -727,8 +744,6 @@ def main(
                     QbC_indexes,
                     nb_steps_expected,
                 )
-                #EB save candidates
-                candidates_all.append(candidates.tolist())
 
             del it_number
        
@@ -899,8 +914,10 @@ def main(
                                     selected.append(idx)
                         selected_indexes = np.array(selected, dtype=int)
 
-                    else: 
+                    else:
                         selected_indexes = candidate_indexes
+
+                    selected_indexes = enforce_min_spacing(selected_indexes)
 
                     discarded_indexes = np.setdiff1d(candidate_indexes, selected_indexes)
 
