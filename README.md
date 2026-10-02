@@ -14,6 +14,115 @@
 
 ---
 
+# Fork-Specific Installation
+
+## 1. ArcaNN environment
+
+1. Clone the `share` branch of this fork:
+
+   ```bash
+   git clone -b share https://github.com/e-bartlett/arcann_training.git
+   ```
+
+2. Create a conda environment in `work`:
+
+   ```bash
+   conda create --prefix /kuhpc/work/thompson/t485j478/conda/arcann_mace
+   ```
+
+3. Activate it:
+
+   ```bash
+   conda activate /kuhpc/work/thompson/t485j478/conda/arcann_mace
+   ```
+
+4. Copy the list of conda packages:
+
+   ```bash
+   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/arcann_env/arcann_explicit.txt ./
+   ```
+
+5. Install the packages (with the environment activated):
+
+   ```bash
+   conda install --file arcann_explicit.txt
+   ```
+
+   > ⚠️ **This will take a while!**
+
+6. From inside the `arcann_training` directory, install ArcaNN in editable mode:
+
+   ```bash
+   pip install -e .
+   ```
+
+   Because the install is editable (`-e`), you can run `git pull` in this clone to update ArcaNN.
+
+7. Check the environment:
+
+   ```bash
+   conda activate <env name>
+   python -c "import arcann_training, ase, MDAnalysis, dscribe, mpi4py; print(arcann_training.__file__)"
+   ```
+
+   Expected output (and nothing else):
+
+   ```text
+   /kuhpc/work/thompson/t485j478/fa26/arcann_mace/arcann_training/arcann_training/__init__.py
+   ```
+
+## 2. MACE environment
+
+1. Create the environment:
+
+   ```bash
+   conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace
+   ```
+
+2. Copy the list of conda packages:
+
+   ```bash
+   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/mace_env/mace.txt ./
+   ```
+
+3. Activate the environment:
+
+   ```bash
+   conda activate /kuhpc/work/thompson/t485j478/conda/mace
+   ```
+
+4. Install the conda packages (you can ignore the warning it prints):
+
+   ```bash
+   conda install --file mace.txt
+   ```
+
+5. Copy the list of pip requirements:
+
+   ```bash
+   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/mace_env/mace_pip_requirements.txt ./
+   ```
+
+6. Install the pip requirements:
+
+   ```bash
+   pip install -r mace_pip_requirements.txt
+   ```
+
+   > ⚠️ **This will also take a while!**
+
+7. Check the environment:
+
+   ```bash
+   python -c "import torch, mace, e3nn, ase; print(torch.__version__, torch.version.cuda)"
+   ```
+
+   Expected output:
+
+   ```text
+   2.13.0+cu126 12.6
+   ```
+
 # ArcaNN #
 
 ArcaNN proposes an automated enhanced sampling generation of training sets for chemically reactive machine learning interatomic potentials.
