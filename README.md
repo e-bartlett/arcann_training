@@ -129,10 +129,13 @@ Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/h
 
    > ⚠️ **This will take a while!** It ends with `BUILD OK`.
 
-7. In the MACE job scripts in `user_files/`, set `MACE_ENV` to the environment's full path
-   (`/kuhpc/work/thompson/t485j478/conda/mace_lammps`). These are
-   `job_mace_train_*.sh`, `job_mace_freeze_*.sh`, `job_mace_centroid_*.sh` and the exploration
-   job scripts.
+7. The MACE job scripts in `user_files/` default to the env name `mace_lammps`
+   (`MACE_ENV="${MACE_ENV:-mace_lammps}"`). Because this env was created with `--prefix`, point
+   them at its full path in the shell you run ArcaNN from. SLURM passes it on to the jobs:
+
+   ```bash
+   export MACE_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps
+   ```
 
 # ArcaNN #
 

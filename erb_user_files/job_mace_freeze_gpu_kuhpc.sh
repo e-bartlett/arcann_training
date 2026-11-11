@@ -48,7 +48,7 @@ MACE_MODEL="_R_MACE_MODEL_"
 MACE_NNP_DIR="_R_MACE_NNP_DIR_"
 MACE_NNP_MODEL="_R_MACE_NNP_MODEL_"
 MACE_LOG="_R_MACE_LOG_"
-MACE_ENV="mace_lammps_test"
+MACE_ENV="${MACE_ENV:-mace_lammps}"
 
 #----------------------------------------------
 # Adapt the following lines to your HPC system
