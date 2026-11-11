@@ -39,7 +39,7 @@
 4. Copy the list of conda packages:
 
    ```bash
-   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/arcann_env/arcann_explicit.txt ./
+   cp /kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/arcann_env/arcann_explicit.txt ./
    ```
 
 5. Install the packages (with the environment activated):
@@ -73,55 +73,66 @@
 
 ## 2. MACE environment
 
-1. Create the environment:
+This environment matches `mace_lammps_test`, which the MACE job scripts run on A100 and A40
+nodes. It includes mace-torch 0.3.16, torch 2.14.0+cu126, cuEquivariance 0.11.1 and a LAMMPS
+Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/mace_env/INSTALL_MACE_ENV.md`.
+
+1. Copy the environment files:
 
    ```bash
-   conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace
+   cp /kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/mace_env/{mace.txt,mace_pip_requirements.txt,build_lammps_mace.sh} ./
    ```
 
-2. Copy the list of conda packages:
+2. Create the environment from the conda package list (on a login node):
 
    ```bash
-   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/mace_env/mace.txt ./
+   conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace_lammps_test --file mace.txt
    ```
 
 3. Activate the environment:
 
    ```bash
-   conda activate /kuhpc/work/thompson/t485j478/conda/mace
+   conda activate /kuhpc/work/thompson/t485j478/conda/mace_lammps_test
+   export PYTHONNOUSERSITE=1
    ```
 
-4. Install the conda packages (you can ignore the warning it prints):
-
-   ```bash
-   conda install --file mace.txt
-   ```
-
-5. Copy the list of pip requirements:
-
-   ```bash
-   cp /kuhpc/scratch/thompson/e497b540/clean_electron_model/mace_env/mace_pip_requirements.txt ./
-   ```
-
-6. Install the pip requirements:
+4. Install the pip requirements (on a login node, since it needs internet):
 
    ```bash
    pip install -r mace_pip_requirements.txt
    ```
 
-   > ⚠️ **This will also take a while!**
+   > ⚠️ **This will take a while!**
 
-7. Check the environment:
+5. Check the environment:
 
    ```bash
-   python -c "import torch, mace, e3nn, ase; print(torch.__version__, torch.version.cuda)"
+   python -c "import torch, mace, cuequivariance_torch, e3nn, ase; print(torch.__version__, torch.version.cuda, cuequivariance_torch.__version__)"
    ```
 
    Expected output:
 
    ```text
-   2.13.0+cu126 12.6
+   2.14.0+cu126 12.6 0.11.1
    ```
+
+   On a login node, an `Error while loading libcue_ops.so: libcuda.so.1 ...` line prints first.
+   That's expected, because login nodes have no GPU driver.
+
+6. Build LAMMPS (Kokkos + ML-IAP) and install its Python module into the environment. Run this
+   on an A100 node from a scratch directory, because the build tree is large:
+
+   ```bash
+   salloc -p bigjay --constraint=a100 --gres=gpu:1 -N1 -n1 -c16 -t2:00:00
+   CONDA_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps_test ./build_lammps_mace.sh
+   ```
+
+   > ⚠️ **This will take a while!** It ends with `BUILD OK`.
+
+7. In the MACE job scripts in `user_files/`, set `MACE_ENV` to the environment's full path
+   (`/kuhpc/work/thompson/t485j478/conda/mace_lammps_test`). These are
+   `job_mace_train_*.sh`, `job_mace_freeze_*.sh`, `job_mace_centroid_*.sh` and the exploration
+   job scripts.
 
 # ArcaNN #
 
