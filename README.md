@@ -73,8 +73,8 @@
 
 ## 2. MACE environment
 
-This environment matches `mace_lammps_test`, which the MACE job scripts run on A100 and A40
-nodes. It includes mace-torch 0.3.16, torch 2.14.0+cu126, cuEquivariance 0.11.1 and a LAMMPS
+This environment, named `mace_lammps`, matches `mace_lammps_test`, the env the MACE job scripts
+run on A100 and A40 nodes. It includes mace-torch 0.3.16, torch 2.14.0+cu126, cuEquivariance 0.11.1 and a LAMMPS
 Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/mace_env/INSTALL_MACE_ENV.md`.
 
 1. Copy the environment files:
@@ -86,13 +86,13 @@ Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/h
 2. Create the environment from the conda package list (on a login node):
 
    ```bash
-   conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace_lammps_test --file mace.txt
+   conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace_lammps --file mace.txt
    ```
 
 3. Activate the environment:
 
    ```bash
-   conda activate /kuhpc/work/thompson/t485j478/conda/mace_lammps_test
+   conda activate /kuhpc/work/thompson/t485j478/conda/mace_lammps
    export PYTHONNOUSERSITE=1
    ```
 
@@ -124,13 +124,13 @@ Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/h
 
    ```bash
    salloc -p bigjay --constraint=a100 --gres=gpu:1 -N1 -n1 -c16 -t2:00:00
-   CONDA_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps_test ./build_lammps_mace.sh
+   CONDA_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps ./build_lammps_mace.sh
    ```
 
    > ⚠️ **This will take a while!** It ends with `BUILD OK`.
 
 7. In the MACE job scripts in `user_files/`, set `MACE_ENV` to the environment's full path
-   (`/kuhpc/work/thompson/t485j478/conda/mace_lammps_test`). These are
+   (`/kuhpc/work/thompson/t485j478/conda/mace_lammps`). These are
    `job_mace_train_*.sh`, `job_mace_freeze_*.sh`, `job_mace_centroid_*.sh` and the exploration
    job scripts.
 
