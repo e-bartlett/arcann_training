@@ -73,9 +73,9 @@
 
 ## 2. MACE environment
 
-This environment, named `mace_lammps`, matches `mace_lammps_test`, the env the MACE job scripts
+This environment, named `mace_lammps` is the env the MACE job scripts
 run on A100 and A40 nodes. It includes mace-torch 0.3.16, torch 2.14.0+cu126, cuEquivariance 0.11.1 and a LAMMPS
-Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/mace_env/INSTALL_MACE_ENV.md`.
+Kokkos + ML-IAP build. 
 
 1. Copy the environment files:
 
@@ -83,7 +83,7 @@ Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/h
    cp /kuhpc/scratch/thompson/e497b540/hydrated_electron/clean_electron_model/mace_env/{mace.txt,mace_pip_requirements.txt,build_lammps_mace.sh} ./
    ```
 
-2. Create the environment from the conda package list (on a login node):
+2. Create the environment from the conda package list:
 
    ```bash
    conda create --prefix /kuhpc/work/thompson/t485j478/conda/mace_lammps --file mace.txt
@@ -96,7 +96,7 @@ Kokkos + ML-IAP build. The full notes are in `/kuhpc/scratch/thompson/e497b540/h
    export PYTHONNOUSERSITE=1
    ```
 
-4. Install the pip requirements (on a login node, since it needs internet):
+4. Install the pip requirements:
 
    ```bash
    pip install -r mace_pip_requirements.txt
