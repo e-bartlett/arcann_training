@@ -119,8 +119,8 @@ Kokkos + ML-IAP build.
    On a login node, an `Error while loading libcue_ops.so: libcuda.so.1 ...` line prints first.
    That's expected, because login nodes have no GPU driver.
 
-6. Build LAMMPS (Kokkos + ML-IAP) and install its Python module into the environment. Run this
-   on an A100 node from a scratch directory, because the build tree is large:
+6. Build LAMMPS (Kokkos + ML-IAP) and install its Python module and the `lmp` executable into the
+   environment. Run this on an A100 node from a scratch directory, because the build tree is large:
 
    ```bash
    srun -p bigjay --constraint=a100 --gres=gpu:1 -N1 -n1 -c16 -t2:00:00
@@ -128,6 +128,24 @@ Kokkos + ML-IAP build.
    ```
 
    > ⚠️ **This will take a while!** It ends with `BUILD OK`.
+
+   `lmp` is installed to `$CONDA_PREFIX/bin` and its library to `$CONDA_PREFIX/lib`, so it keeps
+   working after the scratch build tree is deleted. To run it, on a GPU node, load the modules it
+   was built with (it needs their CUDA runtime and MPI libraries) before activating the env, then
+   put the env's `lib` first on `LD_LIBRARY_PATH`. If the embedded Python can't find the env's
+   packages, also set `PYTHONHOME`:
+
+   ```bash
+   module purge
+   module load compiler/gcc/11.5 cuda/12.8 openmpi-cuda/5.0
+   conda activate /kuhpc/work/thompson/t485j478/conda/mace_lammps
+   export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
+   export PYTHONHOME="$CONDA_PREFIX"   # only if needed
+   lmp -k on g 1 -sf kk -pk kokkos newton on neigh half -in in.lammps
+   ```
+
+   If you already built the env without these steps, rerun the script from the same directory. It
+   reuses the existing build tree, so it only redoes the install and checks.
 
 7. The MACE job scripts in `user_files/` default to the env name `mace_lammps`
    (`MACE_ENV="${MACE_ENV:-mace_lammps}"`). Because this env was created with `--prefix`, point
