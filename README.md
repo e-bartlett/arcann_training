@@ -96,7 +96,7 @@ Kokkos + ML-IAP build.
    export PYTHONNOUSERSITE=1
    ```
 
-4. Install the pip requirements:
+4. Install the pip requirements (you may want to submit this as a job):
 
    ```bash
    pip install -r mace_pip_requirements.txt
