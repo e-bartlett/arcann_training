@@ -124,6 +124,16 @@ def main(
     control_path = training_path / "control"
     main_json = load_json_file((control_path / "config.json"))
 
+    # Fork: the hydrated-electron LAMMPS path drives MD from a per-system
+    # Python driver (<system>_mace_lammps.py). Without it, LAMMPS runs a
+    # stock-shaped input; for the MACE engine the explore job then computes
+    # the committee deviation with mace_model_devi.py (copied in below).
+    hydrated_electron_mode = main_json.get("hydrated_electron_mode", False)
+    is_mace = main_json.get("mlip_engine", "deepmd") == "mace"
+    mace_model_devi_script = (
+        deepmd_iterative_path / "assets" / "others" / "mace_model_devi.py"
+    )
+
     # Load the previous exploration and training JSON
     if curr_iter > 0:
         prev_iter = curr_iter - 1
@@ -344,46 +354,73 @@ def main(
                 training_path / "user_files" / (system_auto + ".in")
             )
 
-            # The per-system LAMMPS driver template. This fork branch drives
-            # LAMMPS from the MACE tandem driver (he_mace_lammps.py wrapping
-            # dataset_prep/mace_electron/he_mace_md.py), so the name is
-            # _mace_lammps.py, not stock ArcaNN's _naive_lammps.py.
-            driver_script_suffix = "_mace_lammps.py"
+            if hydrated_electron_mode:
+                # The per-system LAMMPS driver template. The hydrated-electron
+                # path drives LAMMPS from the MACE tandem driver
+                # (he_mace_lammps.py wrapping he_mace_md_mliap.py), so the
+                # name is _mace_lammps.py, not stock ArcaNN's _naive_lammps.py.
+                # The driver issues 'run' itself, so the input has it commented.
+                driver_script_suffix = "_mace_lammps.py"
+                master_python_script_in = python_to_string_list(
+                    training_path / "user_files" / (system_auto + driver_script_suffix)
+                )
+                analysis_code_1 = python_to_string_list(
+                    training_path / "user_files" / "plot_dev.py"
+                )
+                analysis_code_2 = python_to_string_list(
+                    training_path / "user_files" / "collect_traj.sh"
+                )
+                run_marker = "#run _R_NUMBER_OF_STEPS_"
+            else:
+                run_marker = "run _R_NUMBER_OF_STEPS_"
 
-            # EB Read in python script
-            master_python_script_in = python_to_string_list(
-                training_path / "user_files" / (system_auto + driver_script_suffix)
-            )
-
-            analysis_code_1 = python_to_string_list(
-                training_path / "user_files" / "plot_dev.py"
-            )
-
-            analysis_code_2 = python_to_string_list(
-                training_path / "user_files" / "collect_traj.sh"
-            )
+            if is_mace and not hydrated_electron_mode:
+                # Stock-shaped input, MACE model 0 via ML-IAP:
+                #   pair_style mliap unified _R_MACE_MODEL_ 0
+                #   pair_coeff * * <elements>
+                if not any("_R_MACE_MODEL_" in zzz for zzz in master_system_lammps_in):
+                    arcann_logger.error(
+                        f"'mlip_engine' is 'mace': the LAMMPS input file '{training_path / 'user_files' / (system_auto + '.in')}' must use '_R_MACE_MODEL_' (e.g. 'pair_style mliap unified _R_MACE_MODEL_ 0')."
+                    )
+                    arcann_logger.error(f"Aborting...")
+                    return 1
+                if not mace_model_devi_script.is_file():
+                    arcann_logger.error(
+                        f"'{mace_model_devi_script}' not found. Please BUG REPORT!"
+                    )
+                    arcann_logger.error(f"Aborting...")
+                    return 1
 
             # Add cell info to the LAMMPS input file
             index_run = next(
                 (
                     i
                     for i, item in enumerate(master_system_lammps_in)
-                    if item.startswith("#run _R_NUMBER_OF_STEPS_")
+                    if item.startswith(run_marker)
                 ),
                 -1,
             )
             if index_run == -1:
                 arcann_logger.error(
-                    f"No '#run _R_NUMBER_OF_STEPS_' found in the LAMMPS input file: '{training_path / 'user_files' / (system_auto + '.in')}'."
+                    f"No '{run_marker}' found in the LAMMPS input file: '{training_path / 'user_files' / (system_auto + '.in')}'."
                 )
                 arcann_logger.error(f"Aborting...")
                 return 1
+            lines_before_run = deepcopy(cell_info_lammps)
+            if is_mace and not hydrated_electron_mode:
+                # Frames for mace_model_devi.py (committee deviation after the
+                # run), at the same frequency as the DCD/model_devi rows.
+                lines_before_run += [
+                    "dump arcann_mace_devi all custom _R_PRINT_FREQ_ _R_MACE_DEVI_DUMP_ id type x y z",
+                    "dump_modify arcann_mace_devi sort id format float %20.12f",
+                    "",
+                ]
             master_system_lammps_in = (
                 master_system_lammps_in[:index_run]
-                + cell_info_lammps
+                + lines_before_run
                 + master_system_lammps_in[index_run:]
             )
-            del index_run
+            del index_run, run_marker, lines_before_run
 
             # Check if the LAMMPS input file contains any "plumed" lines
             if any("plumed" in zzz for zzz in master_system_lammps_in):
@@ -897,10 +934,10 @@ def main(
                 # LAMMPS
                 if system_exploration_type == "lammps":
                     system_lammps_in = deepcopy(master_system_lammps_in)
-                    # EB copy python script
-                    python_scipt_in = deepcopy(master_python_script_in)
-                    analysis_1 = deepcopy(analysis_code_1)
-                    analysis_2 = deepcopy(analysis_code_2)
+                    if hydrated_electron_mode:
+                        python_scipt_in = deepcopy(master_python_script_in)
+                        analysis_1 = deepcopy(analysis_code_1)
+                        analysis_2 = deepcopy(analysis_code_2)
 
                     input_replace_dict["_R_SEED_VEL_"] = (
                         f"{nnp_index}{random.randrange(0, 1000)}{traj_index}{padded_curr_iter}"
@@ -924,23 +961,40 @@ def main(
                     input_replace_dict["_R_ITER_"] = (
                         f"{padded_prev_iter}"
                     )
+                    if is_mace:
+                        # Model 0 alone (the one LAMMPS propagates with); the
+                        # whole committee stays in _R_MODEL_FILES_.
+                        input_replace_dict["_R_MACE_MODEL_"] = models_list[0]
 
-                    # Tandem: the frozen centroid model the driver uses to
-                    # reposition the electron dummy atom every MD step. Symlinked
-                    # into local_path (basename in the slot) so the explore job
-                    # can realpath+link it into its scratch workdir, exactly like
-                    # the committee models from create_models_list(). Gated on the
-                    # model existing, not on the force engine -- both the mace and
-                    # deepmd tandem paths (he_mace_md.py / he_deepmd_md.py) use it.
-                    centroid_model_fn = f"centroid_{padded_prev_iter}.model"
-                    centroid_apath = (
-                        training_path / "NNP" / centroid_model_fn
-                    ).resolve()
-                    if centroid_apath.is_file():
-                        subprocess.call(
-                            ["ln", "-nsf", str(centroid_apath), str(local_path)]
+                    if is_mace and not hydrated_electron_mode:
+                        # The explore job derives this name from the .in name
+                        # (<system>_<nnp>_<iter>_devi.lammpstrj) for
+                        # mace_model_devi.py, which it runs after LAMMPS.
+                        input_replace_dict["_R_MACE_DEVI_DUMP_"] = (
+                            f"{system_auto}_{nnp_index}_{padded_curr_iter}_devi.lammpstrj"
                         )
-                        input_replace_dict["_R_CENTROID_MODEL_"] = centroid_model_fn
+                        string_list_to_textfile(
+                            local_path / "mace_model_devi.py",
+                            python_to_string_list(mace_model_devi_script),
+                            read_only=True,
+                        )
+
+                    if hydrated_electron_mode:
+                        # Tandem: the frozen centroid model the driver uses to
+                        # reposition the electron dummy atom every MD step.
+                        # Symlinked into local_path (basename in the slot) so
+                        # the explore job can realpath+link it into its scratch
+                        # workdir, exactly like the committee models from
+                        # create_models_list().
+                        centroid_model_fn = f"centroid_{padded_prev_iter}.model"
+                        centroid_apath = (
+                            training_path / "NNP" / centroid_model_fn
+                        ).resolve()
+                        if centroid_apath.is_file():
+                            subprocess.call(
+                                ["ln", "-nsf", str(centroid_apath), str(local_path)]
+                            )
+                            input_replace_dict["_R_CENTROID_MODEL_"] = centroid_model_fn
 
                     # Get data files (starting points) if iteration is > 1,
                     # or at iteration 1 if starting_structures/000_* exist
@@ -951,7 +1005,6 @@ def main(
                             random.randrange(0, len(starting_point_list))
                         ]
                         starting_point_list.remove(system_lammps_data_fn)
-                        print(system_lammps_data_fn)
                         # Check if the file is in the starting_structures or user_files
                         if (
                             training_path
@@ -1030,21 +1083,25 @@ def main(
                             system_lammps_in, key, value
                         )
 
-                    # EB replace values in python script
-                    for key, value in input_replace_dict.items():
-                        python_scipt_in = replace_substring_in_string_list_python(
-                            python_scipt_in, key, value
+                    if hydrated_electron_mode:
+                        # Fill and write the per-trajectory Python driver
+                        for key, value in input_replace_dict.items():
+                            python_scipt_in = replace_substring_in_string_list_python(
+                                python_scipt_in, key, value
+                            )
+                        string_list_to_textfile(
+                            local_path
+                            / f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}",
+                            python_scipt_in,
+                            read_only=True,
                         )
-                    
+
                     del key, value
                     string_list_to_textfile(
                         local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}.in",
                         system_lammps_in,
                         read_only=True,
                     )
-                    
-                    #EB write python script to path
-                    string_list_to_textfile(local_path / f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}", python_scipt_in, read_only=True)
 
                     job_array_params_line = (
                         str(system_auto)
@@ -1063,9 +1120,12 @@ def main(
                     job_array_params_line += (
                         f"{system_auto}_{nnp_index}_{padded_curr_iter}.in" + "/"
                     )
-                    job_array_params_line += (
-                        f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}" + "/"
-                    )
+                    if hydrated_electron_mode:
+                        # Extra field for the he explore array job (the
+                        # stock schema has no Python driver slot)
+                        job_array_params_line += (
+                            f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}" + "/"
+                        )
                     job_array_params_line += f"{system_lammps_data_fn}" + "/"
                     job_array_params_line += "" + "/"
 
@@ -1093,12 +1153,12 @@ def main(
                         "_R_LAMMPS_IN_FILE_",
                         f"{system_auto}_{nnp_index}_{padded_curr_iter}.in",
                     )
-                    #EB replace in job 
-                    job_file = replace_substring_in_string_list(
-                        job_file,
-                        "_R_LAMMPS_PYTHON_SCRIPT_",
-                        f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}",
-                    )
+                    if hydrated_electron_mode:
+                        job_file = replace_substring_in_string_list(
+                            job_file,
+                            "_R_LAMMPS_PYTHON_SCRIPT_",
+                            f"{system_auto}_{nnp_index}_{padded_curr_iter}{driver_script_suffix}",
+                        )
                     job_file = replace_substring_in_string_list(
                         job_file,
                         "_R_LAMMPS_LOG_FILE_",
@@ -1700,18 +1760,18 @@ def main(
                 job_array_params_file[exploration_type],
                 read_only=True,
             )
-            string_list_to_textfile(
-                current_path
-                / "plot_dev.py",
-                analysis_1,
-                read_only=True,
-            )
-            string_list_to_textfile(
-                current_path
-                / "collect_traj.sh",
-                analysis_2,
-                read_only=True,
-            )
+            if hydrated_electron_mode and exploration_type == "lammps":
+                # Hydrated-electron analysis helpers
+                string_list_to_textfile(
+                    current_path / "plot_dev.py",
+                    analysis_1,
+                    read_only=True,
+                )
+                string_list_to_textfile(
+                    current_path / "collect_traj.sh",
+                    analysis_2,
+                    read_only=True,
+                )
 
 
         del exploration_types

@@ -389,8 +389,6 @@ def main(
                             starting_structures_path
                             / f"{min_file_name}_{padded_min_index}.xyz"
                         )
-                        print(starting_structures_path
-                            / f"{min_file_name}_{padded_min_index}.xyz")
                         if not is_cell_constant:
                             if hydrated_electron_mode:
                                 # This project's workaround for a box-size
@@ -404,8 +402,6 @@ def main(
                                 extended_xyz_header = f'Lattice="{cella[min_index]} 0.0000 0.0000 0.0000 {cellb[min_index]} 0.0000 0.0000 0.0000 {cellc[min_index]}" Properties=species:S:1:pos:R:3 Frame={min_index}'
                         else:
                             extended_xyz_header = f'Lattice="{cella} 0.0000 0.0000 0.0000 {cellb} 0.0000 0.0000 0.0000 {cellc}" Properties=species:S:1:pos:R:3 Frame={min_index}'
-                        #print(xyz_string)
-                        #print(extended_xyz_header)
 
                         xyz_string = (
                             [xyz_string[0]] + [extended_xyz_header] + xyz_string[2:]
@@ -426,12 +422,22 @@ def main(
                             / f"{min_file_name}_{padded_min_index}.lmp"
                         )
 
+                        # Stock: overwrite, and take atom types/masses from
+                        # user_files/properties.txt. The hydrated-electron
+                        # runs convert without them (the electron is typed
+                        # and its mass patched below instead).
+                        if hydrated_electron_mode:
+                            atomsk_options = []
+                        else:
+                            atomsk_options = [
+                                "-ow",
+                                "-properties",
+                                str(Path("..") / "user_files" / "properties.txt"),
+                            ]
                         subprocess.run(
                             [
                                 atomsk_bin,
-                                #"-ow",
-                                #"-properties",
-                                #str(Path("..") / "user_files" / "properties.txt"),
+                                *atomsk_options,
                                 str(
                                     Path("..")
                                     / "starting_structures"
@@ -620,7 +626,11 @@ def main(
                 if QbC_stats["selected_count"] > 0:
                     candidate_indexes = np.array(QbC_indexes["selected_indexes"])
                     gaps = np.diff(np.sort(candidate_indexes))
-                    if gaps.size > 0 and gaps.min() < MIN_SELECTION_SPACING:
+                    if (
+                        hydrated_electron_mode
+                        and gaps.size > 0
+                        and gaps.min() < MIN_SELECTION_SPACING
+                    ):
                         arcann_logger.error(
                             f"{local_path}: selected configurations are {int(gaps.min())} steps apart "
                             f"(minimum {MIN_SELECTION_SPACING}). Rerun: exploration deviate."
@@ -735,6 +745,12 @@ def main(
                                 elec_path = path.with_name("elec_" + path.name)
                                 string_list_to_textfile(xyz_files, water_xyz_string)
                                 string_list_to_textfile(elec_path, elec_string)
+                            else:
+                                # Stock: put the cell in the comment line
+                                xyz_string = (
+                                    [xyz_string[0]] + [extended_xyz_header] + xyz_string[2:]
+                                )
+                                string_list_to_textfile(xyz_files, xyz_string)
 
                             del xyz_string, extended_xyz_header, index_xyz
                         del xyz_files
@@ -902,15 +918,16 @@ def main(
                                     / ("candidates_" + _ + ".xyz")
                                 )
                             )
-                            elec_files.append(
-                                str(
-                                    Path(".")
-                                    / str(system_auto)
-                                    / str(it_nnp)
-                                    / str(it_number).zfill(5)
-                                    / ("elec_candidates_" + _ + ".xyz")
+                            if hydrated_electron_mode:
+                                elec_files.append(
+                                    str(
+                                        Path(".")
+                                        / str(system_auto)
+                                        / str(it_nnp)
+                                        / str(it_number).zfill(5)
+                                        / ("elec_candidates_" + _ + ".xyz")
+                                    )
                                 )
-                            )
                             
 
                         if disturbed_candidate_value != 0:
