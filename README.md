@@ -123,7 +123,7 @@ Kokkos + ML-IAP build.
    on an A100 node from a scratch directory, because the build tree is large:
 
    ```bash
-   salloc -p bigjay --constraint=a100 --gres=gpu:1 -N1 -n1 -c16 -t2:00:00
+   srun -p bigjay --constraint=a100 --gres=gpu:1 -N1 -n1 -c16 -t2:00:00
    CONDA_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps ./build_lammps_mace.sh
    ```
 
