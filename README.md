@@ -16,6 +16,8 @@
 
 # Fork-Specific Installation
 
+To check for updates, run `git fetch` and `git status`. To install the updates, run `git pull`.
+
 ## 1. ArcaNN environment
 
 1. Clone the `share` branch of this fork:
@@ -96,7 +98,7 @@ Kokkos + ML-IAP build.
    export PYTHONNOUSERSITE=1
    ```
 
-4. Install the pip requirements (you may want to submit this as a job):
+4. Install the pip requirements (you may want to submit this as a job or run on an interactive node):
 
    ```bash
    pip install -r mace_pip_requirements.txt
@@ -129,11 +131,7 @@ Kokkos + ML-IAP build.
 
    > ⚠️ **This will take a while!** It ends with `BUILD OK`.
 
-   `lmp` is installed to `$CONDA_PREFIX/bin` and its library to `$CONDA_PREFIX/lib`, so it keeps
-   working after the scratch build tree is deleted. To run it, on a GPU node, load the modules it
-   was built with (it needs their CUDA runtime and MPI libraries) before activating the env, then
-   put the env's `lib` first on `LD_LIBRARY_PATH`. If the embedded Python can't find the env's
-   packages, also set `PYTHONHOME`:
+   To check the lammps executable, run:
 
    ```bash
    module purge
@@ -144,9 +142,6 @@ Kokkos + ML-IAP build.
    lmp -k on g 1 -sf kk -pk kokkos newton on neigh half -in in.lammps
    ```
 
-   If you already built the env without these steps, rerun the script from the same directory. It
-   reuses the existing build tree, so it only redoes the install and checks.
-
 7. The MACE job scripts in `user_files/` default to the env name `mace_lammps`
    (`MACE_ENV="${MACE_ENV:-mace_lammps}"`). Because this env was created with `--prefix`, point
    them at its full path in the shell you run ArcaNN from. SLURM passes it on to the jobs:
@@ -155,7 +150,17 @@ Kokkos + ML-IAP build.
    export MACE_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps
    ```
 
-# ArcaNN #
+## 3. Prepare for running ArcaNN
+
+When you are ready to convert your CP2K data to MACE compatible data,
+you can use these codes from the Github repo as an example: 
+
+- `erb_user_files/mace_prep.py`. You'll have to modify it to fit your directory structure and you'll have to remove the hydrated electron specific parts.
+
+- `erb_user_files/tj_mace_prep.py`. This is how Thanuja modified my code to prepare his data.
+
+
+# Default ArcaNN Info #
 
 ArcaNN proposes an automated enhanced sampling generation of training sets for chemically reactive machine learning interatomic potentials.
 In its current version, it aims to simplify and to automate the iterative training process of a [DeePMD-kit](https://doi.org/10.1063/5.0155600) neural network potential for a user-chosen system, but the core concepts of the training procedure could be extended to other network architectures.
