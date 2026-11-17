@@ -74,9 +74,12 @@ walltime.
 
 `labeling extract` (with `mlip_engine: "mace"`, CP2K labeling) writes each
 iteration's labeled configs as extended XYZ, in the same format as the
-initial datasets, to `data/<system>_<iter>/train.xyz` (all of them: the
-validation set stays the initial datasets' `val.xyz`; disturbed candidates go
-to `data/<system>-disturbed_<iter>/`). With
+initial datasets, to `data/<system>_<iter>/{train,val}.xyz`: 10% of the
+non-skipped configs (`VALID_FRACTION` in `labeling/extract_mace.py`; random,
+seeded per set so reruns match, at least one if there are two or more) go to
+`val.xyz`, the rest to `train.xyz`, and the assignment is in `split.json`.
+Skipped configs are in neither. Disturbed candidates go to
+`data/<system>-disturbed_<iter>/`. With
 `hydrated_electron_mode: true`, every frame also gets the electron as a dummy
 `X` atom (zero force) at the periodic centroid of the stage-2
 `2_labeling_<NNNNN>-<stride>-SPIN_DENSITY-1_0.cube`, computed by

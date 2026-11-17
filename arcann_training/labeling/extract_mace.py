@@ -14,10 +14,14 @@ initial datasets (``data/init_*/{train,val}.xyz``)::
 
     Lattice="..." Properties=species:S:1:pos:R:3:forces_REF:R:3 energy_REF=<eV> config=<sys>_<iter>_<NNNNN> pbc="T T T"
 
-into ``data/<system>_<iter>/train.xyz`` (disturbed candidates go to
-``data/<system>-disturbed_<iter>/``). No frames are held out: the validation
-set stays the initial datasets' ``val.xyz``. ``training prepare`` concatenates
-these with the initial datasets into the next ``<iter>-training/train.xyz``.
+into ``data/<system>_<iter>/{train,val}.xyz`` (disturbed candidates go to
+``data/<system>-disturbed_<iter>/``). ``VALID_FRACTION`` of the non-skipped
+configs (randomly chosen, reproducibly seeded per set; at least one when there
+are two or more) go to ``val.xyz``, the rest to ``train.xyz``; the assignment
+is recorded in ``split.json`` like the initial datasets'. Skipped configs
+(``skip`` file or ``configs_to_skip.txt``) are never in either. ``training
+prepare`` concatenates these with the initial datasets into the next
+``<iter>-training/{train,valid}.xyz``.
 
 With ``hydrated_electron_mode``, each frame also gets the electron as a dummy
 ``X`` atom (zero force) at the periodic centroid of the stage-2 CP2K spin
@@ -31,6 +35,8 @@ same ``X`` position as its target, so both models train on the same frames.
 # Standard library modules
 import csv
 import importlib
+import json
+import zlib
 import logging
 import sys
 from pathlib import Path
@@ -52,6 +58,24 @@ from arcann_training.labeling.utils import is_config_skipped
 ELECTRON_SYMBOL = "X"
 # How negative spin density is handled for the centroid (as in spin_analysis.csv).
 CENTROID_NEGATIVE = "clip"
+# Fraction of each labeled set's (non-skipped) configs held out in val.xyz,
+# and the base seed of the split (same as the initial datasets' split.json).
+VALID_FRACTION = 0.1
+VALID_SEED = 20261115
+
+
+def _split_valid(config_names: List[str], config_prefix: str) -> Set[int]:
+    """Indices (into ``config_names``) of the configs held out for validation.
+
+    ``round(VALID_FRACTION * n)`` of them, at least 1 when n >= 2, drawn with a
+    seed fixed by ``config_prefix`` so a rerun gives the same split.
+    """
+    count = len(config_names)
+    valid_count = int(round(VALID_FRACTION * count))
+    if valid_count == 0 and count >= 2:
+        valid_count = 1
+    rng = np.random.default_rng([VALID_SEED, zlib.crc32(config_prefix.encode())])
+    return set(int(i) for i in rng.choice(count, size=valid_count, replace=False))
 
 
 def _first_existing(*paths: Path) -> Path:
@@ -191,6 +215,7 @@ def _extract_system(
 ) -> int:
     """Extract ``labeling_steps`` of one system into ``data_path``; returns the frame count."""
     frames = []
+    config_names = []
     centroid_rows = []
     program_version = None
     for labeling_step in labeling_steps:
@@ -239,9 +264,8 @@ def _extract_system(
             frame["forces"] = np.vstack([frame["forces"], np.zeros(3)])
             centroid_rows.append({**row, "config": f"{config_prefix}_{padded_labeling_step}"})
 
-        frames.append(
-            _frame_text(frame, f"{config_prefix}_{padded_labeling_step}")
-        )
+        config_names.append(f"{config_prefix}_{padded_labeling_step}")
+        frames.append(_frame_text(frame, config_names[-1]))
 
     if len(frames) != expected_count:
         raise ValueError(
@@ -251,9 +275,35 @@ def _extract_system(
     if not frames:
         return 0
 
+    valid_indexes = _split_valid(config_names, config_prefix)
     data_path.mkdir(parents=True, exist_ok=True)
     with (data_path / "train.xyz").open("w") as train_file:
-        train_file.writelines(frames)
+        train_file.writelines(
+            frame for i, frame in enumerate(frames) if i not in valid_indexes
+        )
+    if valid_indexes:
+        with (data_path / "val.xyz").open("w") as val_file:
+            val_file.writelines(
+                frame for i, frame in enumerate(frames) if i in valid_indexes
+            )
+    else:
+        # No held-out frame (a single config): drop a stale val.xyz of a previous run.
+        (data_path / "val.xyz").unlink(missing_ok=True)
+    with (data_path / "split.json").open("w") as split_file:
+        json.dump(
+            {
+                "seed": [VALID_SEED, zlib.crc32(config_prefix.encode())],
+                "valid_frac": VALID_FRACTION,
+                "n_train": len(frames) - len(valid_indexes),
+                "n_valid": len(valid_indexes),
+                "split": {
+                    name: ("valid" if i in valid_indexes else "train")
+                    for i, name in enumerate(config_names)
+                },
+            },
+            split_file,
+            indent=1,
+        )
 
     if centroid_rows:
         with (data_path / "centroid_labels.csv").open("w", newline="") as csv_file:
@@ -262,7 +312,8 @@ def _extract_system(
             writer.writerows({key: row[key] for key in centroid_module.FIELDS} for row in centroid_rows)
 
     arcann_logger.info(
-        f"{data_path.name}: {len(frames)} train frames"
+        f"{data_path.name}: {len(frames) - len(valid_indexes)} train + "
+        f"{len(valid_indexes)} val frames"
         + (" (electron at the spin-density centroid)." if centroid_rows else ".")
     )
     return len(frames)
@@ -279,7 +330,7 @@ def extract_mace(
     Ha_to_eV: float,
     au_to_eV_per_A: float,
 ) -> int:
-    """Write every system's labeled configs to ``data/<system>_<iter>/train.xyz``.
+    """Write every system's labeled configs to ``data/<system>_<iter>/{train,val}.xyz``.
 
     Returns 0 on success, 1 on error (after logging it).
     """
