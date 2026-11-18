@@ -77,7 +77,7 @@ To check for updates, run `git fetch` and `git status`. To install the updates, 
 
 This environment, named `mace_lammps` is the env the MACE job scripts
 run on A100 and A40 nodes. It includes mace-torch 0.3.16, torch 2.14.0+cu126, cuEquivariance 0.11.1 and a LAMMPS
-Kokkos + ML-IAP build. 
+Kokkos + ML-IAP build (with the EXTRA-DUMP package, for `dump dcd`).
 
 1. Copy the environment files:
 
@@ -121,7 +121,7 @@ Kokkos + ML-IAP build.
    On a login node, an `Error while loading libcue_ops.so: libcuda.so.1 ...` line prints first.
    That's expected, because login nodes have no GPU driver.
 
-6. Build LAMMPS (Kokkos + ML-IAP) and install its Python module and the `lmp` executable into the
+6. Build LAMMPS (Kokkos + ML-IAP + EXTRA-DUMP) and install its Python module and the `lmp` executable into the
    environment. Run this on an A100 node from a scratch directory, because the build tree is large:
 
    ```bash
@@ -129,7 +129,8 @@ Kokkos + ML-IAP build.
    CONDA_ENV=/kuhpc/work/thompson/t485j478/conda/mace_lammps ./build_lammps_mace.sh
    ```
 
-   > ⚠️ **This will take a while!** It ends with `BUILD OK`.
+   > ⚠️ **This will take a while!** It ends with `BUILD OK`. The check before that should print
+   > `has dump dcd: yes`.
 
    To check the lammps executable, run:
 
