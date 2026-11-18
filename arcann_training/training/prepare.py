@@ -391,6 +391,26 @@ def _prepare_mace(
             centroid_dir / centroid_job_name, centroid_job, read_only=True
         )
 
+        # Centroid model comparison (every NNP/centroid_<k>.model on every
+        # data/<sys>_<j> labelled set, with a figure). The script is copied
+        # here; `training freeze` stages job_mace_centroid_compare_* from
+        # user_files/ with the freeze machine spec and launches it, once this
+        # iteration's centroid model is in NNP/.
+        compare_script = user_files_path / "compare_centroid_models.py"
+        if compare_script.is_file():
+            string_list_to_textfile(
+                current_path / compare_script.name,
+                python_to_string_list(compare_script),
+                read_only=True,
+            )
+            arcann_logger.info(f"Copied {compare_script.name} to {current_path}.")
+        else:
+            arcann_logger.warning(
+                f"No {compare_script.name} in {user_files_path}: the centroid "
+                f"model comparison will not run at freeze."
+            )
+        del compare_script
+
     write_json_file(main_json, (control_path / "config.json"), read_only=True)
     write_json_file(
         training_json,

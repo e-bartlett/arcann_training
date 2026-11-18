@@ -36,6 +36,70 @@ from arcann_training.common.machine import (
 from arcann_training.common.slurm import replace_in_slurm_file_general
 
 
+def launch_centroid_compare(
+    arcann_logger,
+    current_path: Path,
+    training_path: Path,
+    main_json: dict,
+    padded_curr_iter: str,
+    curr_iter: int,
+    machine: str,
+    machine_spec: dict,
+    machine_walltime_format: str,
+    machine_launch_command: str,
+    job_email: str,
+) -> bool:
+    """Stage and sbatch job_mace_centroid_compare_<arch>_<machine>.sh in
+    <iter>-training/. Returns True if launched. Only warns on problems."""
+    if curr_iter < 1:
+        arcann_logger.info("Centroid compare: iteration 0 has no labelled set, skipped.")
+        return False
+    if not (current_path / "compare_centroid_models.py").is_file():
+        arcann_logger.warning(
+            "Centroid compare NOT launched - no compare_centroid_models.py in "
+            f"{current_path} (copied by `training prepare` from user_files/)."
+        )
+        return False
+    centroid_model = training_path / "NNP" / f"centroid_{padded_curr_iter}.model"
+    if not centroid_model.is_file():
+        arcann_logger.warning(f"Centroid compare NOT launched - {centroid_model} missing.")
+        return False
+    job_name = f"job_mace_centroid_compare_{machine_spec['arch_type']}_{machine}.sh"
+    template = training_path / "user_files" / job_name
+    if not template.is_file():
+        arcann_logger.warning(f"Centroid compare NOT launched - no {job_name} in user_files/.")
+        return False
+
+    systems = main_json.get("systems_auto", ["he"])
+    system = "he" if "he" in systems or not systems else systems[0]
+    if len(systems) > 1:
+        arcann_logger.warning(
+            f"Centroid compare: several systems {systems}; comparing on '{system}' sets only."
+        )
+    job_file = replace_in_slurm_file_general(
+        textfile_to_string_list(template),
+        machine_spec,
+        3600,
+        machine_walltime_format,
+        job_email,
+    )
+    job_file = replace_substring_in_string_list(job_file, "_R_SYSTEM_", system)
+    string_list_to_textfile(current_path / job_name, job_file, read_only=True)
+
+    change_directory(current_path)
+    try:
+        subprocess.run([machine_launch_command, f"./{job_name}"])
+        arcann_logger.info(
+            f"MACE Centroid compare launched -> {current_path / 'centroid_compare'}."
+        )
+        return True
+    except FileNotFoundError:
+        arcann_logger.warning(
+            f"Centroid compare NOT launched - '{machine_launch_command}' not found."
+        )
+        return False
+
+
 def main(
     current_step: str,
     current_phase: str,
@@ -248,6 +312,27 @@ def main(
                 )
             del local_path, model_name, nnp_model_name, job_out_name
         del nnp, master_job_file
+
+        # Centroid model comparison (hydrated_electron_mode): every
+        # NNP/centroid_<k>.model on every data/<sys>_<j> labelled set, k, j <=
+        # this iteration, plus a figure, in <iter>-training/centroid_compare/.
+        # `training prepare` copied compare_centroid_models.py here; the
+        # centroid model itself was verified into NNP/ by `training check`.
+        # Diagnostic only: a failure here never fails the freeze phase.
+        if main_json.get("hydrated_electron_mode", False):
+            launch_centroid_compare(
+                arcann_logger,
+                current_path,
+                training_path,
+                main_json,
+                padded_curr_iter,
+                curr_iter,
+                machine,
+                machine_spec,
+                machine_walltime_format,
+                machine_launch_command,
+                current_input_json["job_email"],
+            )
 
         if completed_count == main_json["nnp_count"]:
             training_json["is_freeze_launched"] = True
