@@ -160,8 +160,88 @@ you can use these codes from the Github repo as an example:
 
 - `erb_user_files/tj_mace_prep.py`. This is how Thanuja modified my code to prepare his data.
 
+## 4. Prepare your user files. 
 
-# Default ArcaNN Info #
+The following guide lists each file in `user_files/` and what to change for a new system. It is based on how `erb_user_files` (hydrated electron in water) was adapted for a silica/water interface (Si, O, H; 864 atoms). Examples read *ERB* → *TJ*. Replace `<system>` with the name you put in `systems_auto`.
+
+## Structure and MD inputs
+
+- **`<system>.lmp`** (was `he.lmp`)
+  - Replace with a LAMMPS data file for your system.
+  - The atom-type order must match `properties.txt`, `pair_coeff` and `type_map`.
+- **`<system>.pdb`** (was `he.pdb; not required but helpful for visualization.)
+  - Replace with the same starting structure in PDB format.
+- **`<system>.in`** (was `he.in`)
+  - Unless you are running hydrated-electron mode, start from `mace_non_he/SYSTEM.in`, not `he.in`. Copy it to the top level of `user_files/` as `<system>.in`. ArcaNN only reads the top-level copy.
+  - Keep `pair_style mliap unified _R_MACE_MODEL_ 0`. `exploration prepare` fails if `_R_MACE_MODEL_` is missing.
+  - Set `pair_coeff * * <elements in type order>` (O H → Si O H).
+  - Set groups and fixes for your system (as desired). For example, TJ holds atoms 107, 119, 131, 138 and 139 fixed with `setforce 0.0 0.0 0.0`. It applies NVE, CSVR and momentum fixes to the rest.
+  - Adjust neighbor settings if needed (`neighbor 1.0` → `2.0`; `neigh_modify every 10` → `every 1`).
+  - Keep every `_R_..._` placeholder, plus the `run _R_NUMBER_OF_STEPS_` and `write_restart _R_RESTART_OUT_` lines.
+- **`<system>_mace_lammps.py`** (was `he_mace_lammps.py`)
+  - Only for hydrated-electron mode.&#32;
+
+## CP2K labeling inputs
+
+- **`1_<system>_labeling_XXXXX_kuhpc.inp`** and **`2_<system>_labeling_XXXXX_kuhpc.inp`** (were `1_he_…` and `2_he_…`)
+  - Rename both with your system name.
+  - Modify the contents to perform single point calculations at the desired level of theory.
+- **The step-2 file must keep two things,** whatever else changes:
+  - `@SET SYSNAME 2_labeling__R_PADDEDSTEP_`
+  - The `&PRINT` block with `PROGRAM_RUN_INFO` and `FORCES`. `labeling extract` reads `2_labeling_<step>-Force_Eval.fe` and `2_labeling_<step>-Forces.for`.&#32;
+
+## Config and training files
+
+- **`default_config.json`  is just an example containing the input.json fields for each phase, not strictly necessary.**
+  - `systems_auto`: `[""]` → `["<system>"]`
+  - `mlip_engine`: `deepmd` → `mace`
+  - `mace_env`: path to your MACE conda environment
+- **`properties.txt`**
+  - List each element with its type index, in LAMMPS type order (ERB: O 1, H 2, X 3 → TJ: Si 1, O 2, H 3).
+  - List each mass.&#32;
+- **`mace_train.yaml`**
+  - `E0s`: one entry per atomic number, as isolated-atom energies in eV at your DFT level (`{1: -13.659544, 8: -432.289058, 14: -102.898223}`).
+  - Model size: interface shrank it for 864 atoms (`r_max` 6.0 → 5.0, `hidden_irreps` 128x0e + 128x1o → 64x0e + 64x1o, `max_ell` 3 → 2). You can test this and choose what you want.
+  - `valid_batch_size`: you should test this and use as much as can fit in memory.
+- **`dptrain_3.0.json`** (DeePMD only)
+  - `type_map` (O, H, X → Si, O, H), `sel` (maximum neighbors per type), `neuron`, and `atom_ener` per type.
+- **`machine.json`**
+  - `project_name`: your username or account, in all 5 places (e497b540 → t485j478).
+- **`mace_prep.py`** (converts the initial CP2K dataset to extxyz)
+  - Rewrite it for your data: input folder, atom count, `symbols` in file order, cell, the config indices to read, CP2K output filenames and output name.
+  - Remove the electron-centroid part at the end.
+  - TJ's version is saved as `erb_user_files/tj_mace_prep.py`.&#32;
+
+## Job scripts
+
+- **`job_lammps-deepmd_explore_gpu_kuhpc.sh`** and **`job-array_lammps-deepmd_explore_gpu_kuhpc.s``h`**  **IMPORTANT**! These run mace even though the file name says deepmd.&#32;
+  - Unless you are running hydrated-electron mode, copy the versions in `mace_non_he/` to the top level of `user_files/`. ArcaNN only reads the top-level copies.
+  - The top-level erb versions run the hydrated-electron Python driver (`MACE_DRIVER_DIR`, centroid model).
+  - Set the `MACE_ENV` default to your environment (`mace_lammps` → `/kuhpc/work/thompson/t485j478/conda/mace_lammps`).
+  - Keep the file names. ArcaNN looks for `job_lammps-deepmd_explore_*` even when the engine is MACE.
+- **`job_mace_train_gpu_kuhpc.sh`**
+  - `MACE_ENV`: path to your environment.
+  - Optional: add `--enable_cueq TRUE` if your environment has cuEquivariance (recommended and enabled in the latest mace\_lammps environment build).
+- **`job_mace_freeze_gpu_kuhpc.sh`**
+  - `MACE_ENV`: your environment.
+  - `#SBATCH --mem`: test this for your system.
+
+## No changes needed
+
+- `job_CP2K_label_cpu_kuhpc.sh`, `job-array_CP2K_label_cpu_kuhpc.sh`
+- `collect_traj.sh`, `install_deepmd-kit_env.sh`, `loss.py`
+- `plot_dev.py`, `plot_loss.py`, `plot_traj_min_dev.py`
+
+## Hydrated electron, DeePMD, or reference only (can delete for other systems)
+
+- **Electron centroid model:** `model.py`, `readout.py`, `train_centroid.py`, `evaluate_centroid.py`, `job_mace_centroid_gpu_kuhpc.sh`, `compare_centroid_models.py`, `job_mace_centroid_compare_gpu_kuhpc.sh`
+- **Electron data tools:** `centroid_label_from_cube.py`, `to_extxyz_centroid.py`, `analyze_dataset.py`, `plumed_he.dat`, `inp.yaml`
+- `deepmd_npy_to_extxyz.py`,
+- **DeePMD only:** `job_deepmd_train_gpu_kuhpc.sh`, `job_deepmd_freeze_gpu_kuhpc.sh`, `job_deepmd_compress_gpu_kuhpc.sh`, `job_deepmd_test_gpu_kuhpc.sh`, `dptrain_2.2.json`
+- **Other:** `mace_default_input.json`, `tj_mace_prep.py` (reference only), `__pycache__/`
+
+
+## 5. Default ArcaNN README
 
 ArcaNN proposes an automated enhanced sampling generation of training sets for chemically reactive machine learning interatomic potentials.
 In its current version, it aims to simplify and to automate the iterative training process of a [DeePMD-kit](https://doi.org/10.1063/5.0155600) neural network potential for a user-chosen system, but the core concepts of the training procedure could be extended to other network architectures.
